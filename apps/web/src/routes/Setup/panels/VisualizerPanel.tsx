@@ -230,6 +230,7 @@ export function VisualizerPanel({
   const [tab, setTab] = useState<'3d' | 'console' | 'camera' | 'wizard' | 'toolchange' | 'setup'>('3d')
   const [view, setView] = useState<'top' | 'front' | 'iso' | 'fit' | undefined>('iso')
   const [viewKey, setViewKey] = useState(0)
+  const vizMode = settings?.machine?.visualizerMode ?? 'machine'
   
   // Switch to wizard tab when wizard method is set, and back to 3D view when it closes
   useEffect(() => {
@@ -695,17 +696,18 @@ export function VisualizerPanel({
       
       {/* 3D View Tab */}
       <div className={`flex-1 relative ${tab === '3d' ? 'block' : 'hidden'}`}>
-        <VisualizerScene 
-          gcode={loadedGcode?.gcode} 
+        <VisualizerScene
+          gcode={loadedGcode?.gcode}
           limits={settings?.machine?.limits}
           view={view}
           viewKey={viewKey}
           machinePosition={machinePosition}
           processedLines={senderState?.received}
-          modelOffset={modelOffsetVector3}
+          modelOffset={vizMode === 'machine' ? modelOffsetVector3 : undefined}
           outlinePoints={showOutline ? (outlinePoints || undefined) : undefined}
+          vizMode={vizMode}
         />
-        
+
         {/* View controls overlay */}
         <div className="absolute bottom-3 left-3 flex gap-1">
           <Button variant="secondary" size="sm" className="h-7 text-xs" onClick={() => { setView('top'); setViewKey(k => k + 1) }}>{t('Top')}</Button>
@@ -713,17 +715,17 @@ export function VisualizerPanel({
           <Button variant="secondary" size="sm" className="h-7 text-xs" onClick={() => { setView('iso'); setViewKey(k => k + 1) }}>{t('Iso')}</Button>
           <Button variant="secondary" size="sm" className="h-7 text-xs" onClick={() => { setView('fit'); setViewKey(k => k + 1) }}>{t('Fit')}</Button>
         </div>
-        
-        {/* Place Model button */}
-        {loadedGcode && (
+
+        {/* Place Model button - only in machine mode */}
+        {loadedGcode && vizMode === 'machine' && (
           <div className="absolute bottom-3 right-3">
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button 
-                    variant="secondary" 
-                    size="sm" 
-                    className="h-7 text-xs" 
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 text-xs"
                     onClick={handlePlaceModel}
                   >
                     <Move className="w-3 h-3 mr-1" />

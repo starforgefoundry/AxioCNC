@@ -252,11 +252,12 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
   const [viewMode, setViewMode] = useState<ViewMode>('side-by-side')
   const { data: settings } = useGetSettingsQuery()
   const dispatch = useAppDispatch()
-  
+  const vizMode = settings?.machine?.visualizerMode ?? 'machine'
+
   // Get shared machine state for positions
   const workPosition = useWorkPosition()
   const connectedPort = useConnectedPort() // Use Redux state instead of settings
-  
+
   // G-code state for visualizer
   const [loadedGcode, setLoadedGcode] = useState<{ name: string; gcode: string } | null>(null)
   const [modelOffset, setModelOffset] = useState<{ x: number; y: number; z: number } | null>(null)
@@ -446,14 +447,15 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
             ${viewMode === 'side-by-side' ? 'w-1/2' : 'w-full'}
             flex-1 relative
           `}>
-            <VisualizerScene 
-              gcode={loadedGcode?.gcode} 
+            <VisualizerScene
+              gcode={loadedGcode?.gcode}
               limits={settings?.machine?.limits}
               view={view}
               viewKey={viewKey}
               machinePosition={machinePosition}
-              modelOffset={modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
+              modelOffset={vizMode === 'machine' && modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
               processedLines={processedLines}
+              vizMode={vizMode}
             />
             {/* PiP camera overlay when visualizer is full screen */}
             {viewMode === 'pip-visual' && (
@@ -483,14 +485,15 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
                   {t('3D View')}
                 </div>
                 <div className="w-full h-full">
-                  <VisualizerScene 
-                    gcode={loadedGcode?.gcode} 
+                  <VisualizerScene
+                    gcode={loadedGcode?.gcode}
                     limits={settings?.machine?.limits}
                     view={view}
                     viewKey={viewKey}
                     machinePosition={machinePosition}
-                    modelOffset={modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
+                    modelOffset={vizMode === 'machine' && modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
                     processedLines={processedLines}
+                    vizMode={vizMode}
                   />
                 </div>
               </div>
