@@ -2,15 +2,15 @@
  * One-off probe flow from the Probe panel (Run button).
  * Uses the same block-based execution as Job Setup: singleMethodToBlocks + RenderSetupBlock.
  */
-import { useState, useCallback, useMemo, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
-import { Button } from '@/components/ui/button'
-import { singleMethodToBlocks } from '@/utils/setupPlan'
-import { RenderSetupBlock, SetupBlockBackButton } from '@/components/JobSetupWizard/blocks'
 import type { BlockRunContext } from '@/components/JobSetupWizard/blocks'
-import { useGcodeCommand, useBitsetterReference } from '@/hooks'
-import { useSetExtensionsMutation } from '@/services/api'
+import { RenderSetupBlock, SetupBlockBackButton } from '@/components/JobSetupWizard/blocks'
+import { Button } from '@/components/ui/button'
+import { useBitsetterReference, useGcodeCommand } from '@/hooks'
 import type { ZeroingMethod } from '@/routes/Settings/sections/ZeroingMethodsSection'
+import { useSetExtensionsMutation } from '@/services/api'
+import { singleMethodToBlocks } from '@/utils/setupPlan'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 export interface SingleMethodProbeFlowProps {
   method: ZeroingMethod
@@ -123,7 +123,7 @@ export function SingleMethodProbeFlow({
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
-      <div className="flex shrink-0 items-center justify-between gap-2 py-2 px-2 border-b">
+      <div className="flex shrink-0 items-center justify-between gap-2 py-2 px-3 border-b">
         <span className="text-sm font-medium truncate">
           {method.name}
           {blocks.length > 1 && (

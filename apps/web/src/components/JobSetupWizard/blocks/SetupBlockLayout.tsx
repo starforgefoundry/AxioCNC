@@ -1,7 +1,7 @@
+import { Button } from '@/components/ui/button'
+import { ArrowLeft } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 
 /** Config for the primary Next button in the footer (template renders it). */
 export interface SetupBlockNextButtonConfig {
@@ -152,10 +152,10 @@ export function SetupBlockLayout({
     <div className="flex min-h-0 flex-1 flex-col">
       {titleBar}
       {stepProgress}
-      <div className="flex-1 overflow-auto min-h-0 pb-6">
+      <div className="flex-1 overflow-auto min-h-0 pb-6 p-3">
         {children}
       </div>
-      <div className="flex w-full shrink-0 items-center justify-between gap-2 border-t pt-4">
+      <div className="flex w-full shrink-0 items-center justify-between gap-2 border-t p-3">
         <div>{footerLeftContent}</div>
         <div className="flex gap-2">{footerRightContent}</div>
       </div>
