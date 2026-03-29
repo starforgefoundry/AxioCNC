@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Camera, Terminal, Maximize2, Clock, FileText, Gauge, Columns3, PictureInPicture, ArrowLeftRight, RotateCcw, RotateCw, Square, ChevronDown, GripVertical, BarChart3, Wrench, ActivitySquare, ClipboardList, Move, SlidersHorizontal } from 'lucide-react'
+import { Camera, Terminal, Maximize2, Clock, FileText, Gauge, Columns3, PictureInPicture, ArrowLeftRight, RotateCcw, RotateCw, Square, ChevronDown, GripVertical, BarChart3, Wrench, ActivitySquare, ClipboardList, Move, Eye, SlidersHorizontal } from 'lucide-react'
 import Hls from 'hls.js'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -250,7 +250,21 @@ interface VisualizerCameraViewProps {
 
 function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCameraViewProps) {
   const { t } = useTranslation()
-  const [viewMode, setViewMode] = useState<ViewMode>('side-by-side')
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    const saved = localStorage.getItem('monitor.viewMode')
+    if (saved && ['side-by-side', 'visual-only', 'camera-only', 'pip-visual', 'pip-camera'].includes(saved)) {
+      return saved as ViewMode
+    }
+    return 'side-by-side'
+  })
+  const [viewMenuOpen, setViewMenuOpen] = useState(false)
+  const setViewModePersist = useCallback((mode: ViewMode | ((prev: ViewMode) => ViewMode)) => {
+    setViewMode(prev => {
+      const next = typeof mode === 'function' ? mode(prev) : mode
+      localStorage.setItem('monitor.viewMode', next)
+      return next
+    })
+  }, [])
   const { data: settings } = useGetSettingsQuery()
   const dispatch = useAppDispatch()
   const vizMode = settings?.machine?.visualizerMode ?? 'machine'
@@ -432,9 +446,9 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
 
   const handleSwapPiP = () => {
     if (viewMode === 'pip-visual') {
-      setViewMode('pip-camera')
+      setViewModePersist('pip-camera')
     } else if (viewMode === 'pip-camera') {
-      setViewMode('pip-visual')
+      setViewModePersist('pip-visual')
     }
   }
 
@@ -503,55 +517,67 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
         )}
       </div>
 
-      {/* View mode controls */}
-      <div className="absolute bottom-3 left-3 flex flex-col gap-1.5 bg-card/95 backdrop-blur-sm border border-border rounded-lg p-1.5 shadow-lg">
+      {/* View mode controls - eye icon toggle with popup */}
+      <div className="absolute bottom-3 left-3">
         <Button
-          variant={viewMode === 'side-by-side' ? 'default' : 'ghost'}
-          size="sm"
-          className="h-7 text-xs justify-start"
-          onClick={() => setViewMode('side-by-side')}
+          variant="secondary"
+          size="icon"
+          className="h-8 w-8 rounded-lg shadow-lg"
+          onClick={() => setViewMenuOpen(v => !v)}
         >
-          <Columns3 className="w-3 h-3 mr-1.5" />
-          {t('Side-by-Side')}
+          <Eye className="w-4 h-4" />
         </Button>
-        <Button
-          variant={viewMode === 'visual-only' ? 'default' : 'ghost'}
-          size="sm"
-          className="h-7 text-xs justify-start"
-          onClick={() => setViewMode('visual-only')}
-        >
-          <Maximize2 className="w-3 h-3 mr-1.5" />
-          {t('3D View Only')}
-        </Button>
-        <Button
-          variant={viewMode === 'camera-only' ? 'default' : 'ghost'}
-          size="sm"
-          className="h-7 text-xs justify-start"
-          onClick={() => setViewMode('camera-only')}
-        >
-          <Camera className="w-3 h-3 mr-1.5" />
-          {t('Camera Only')}
-        </Button>
-        <div className="w-full h-px bg-border my-0.5" />
-        <Button
-          variant={viewMode === 'pip-visual' || viewMode === 'pip-camera' ? 'default' : 'ghost'}
-          size="sm"
-          className="h-7 text-xs justify-start"
-          onClick={() => setViewMode(viewMode === 'pip-visual' || viewMode === 'pip-camera' ? 'side-by-side' : 'pip-visual')}
-        >
-          <PictureInPicture className="w-3 h-3 mr-1.5" />
-          {t('PiP')}
-        </Button>
-        {(viewMode === 'pip-visual' || viewMode === 'pip-camera') && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 text-xs justify-start"
-            onClick={handleSwapPiP}
-          >
-            <ArrowLeftRight className="w-3 h-3 mr-1.5" />
-            {t('Swap')}
-          </Button>
+        {viewMenuOpen && (
+          <div className="absolute bottom-10 left-0 flex flex-col gap-1 bg-card/95 backdrop-blur-sm border border-border rounded-lg p-1.5 shadow-lg min-w-[140px]">
+            <Button
+              variant={viewMode === 'side-by-side' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs justify-start"
+              onClick={() => { setViewModePersist('side-by-side'); setViewMenuOpen(false) }}
+            >
+              <Columns3 className="w-3 h-3 mr-1.5" />
+              {t('Side-by-Side')}
+            </Button>
+            <Button
+              variant={viewMode === 'visual-only' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs justify-start"
+              onClick={() => { setViewModePersist('visual-only'); setViewMenuOpen(false) }}
+            >
+              <Maximize2 className="w-3 h-3 mr-1.5" />
+              {t('3D View Only')}
+            </Button>
+            <Button
+              variant={viewMode === 'camera-only' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs justify-start"
+              onClick={() => { setViewModePersist('camera-only'); setViewMenuOpen(false) }}
+            >
+              <Camera className="w-3 h-3 mr-1.5" />
+              {t('Camera Only')}
+            </Button>
+            <div className="w-full h-px bg-border my-0.5" />
+            <Button
+              variant={viewMode === 'pip-visual' || viewMode === 'pip-camera' ? 'default' : 'ghost'}
+              size="sm"
+              className="h-7 text-xs justify-start"
+              onClick={() => { setViewModePersist(viewMode === 'pip-visual' || viewMode === 'pip-camera' ? 'side-by-side' : 'pip-visual'); setViewMenuOpen(false) }}
+            >
+              <PictureInPicture className="w-3 h-3 mr-1.5" />
+              {t('PiP')}
+            </Button>
+            {(viewMode === 'pip-visual' || viewMode === 'pip-camera') && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs justify-start"
+                onClick={() => { handleSwapPiP(); setViewMenuOpen(false) }}
+              >
+                <ArrowLeftRight className="w-3 h-3 mr-1.5" />
+                {t('Swap')}
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>
