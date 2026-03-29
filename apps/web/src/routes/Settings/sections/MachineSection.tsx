@@ -77,6 +77,7 @@ export interface MachineConfig {
     zmax: number
   }
   homingCorner?: HomingCorner  // Optional: inferred if not provided
+  visualizerMode: 'machine' | 'wcs'
   autoSwitchToMonitorEnabled: boolean
   toolSpinupDelayEnabled: boolean
   toolSpinupDelaySeconds: number
@@ -423,6 +424,32 @@ export function MachineSection({
 
       {/* Controller Behavior */}
       <div className="space-y-3 pt-4">
+        <SettingsField
+          label={t('Visualizer mode')}
+          description={t('Machine mode shows the full work envelope. WCS mode shows toolpaths relative to the work coordinate origin.')}
+          tooltip={t('Machine mode displays the full machine envelope with toolpaths positioned in absolute machine coordinates. WCS mode shows toolpaths relative to the work coordinate system origin (G54, etc.) without the machine envelope.')}
+          horizontal
+        >
+          <div className="flex gap-1">
+            <Button
+              variant={config.visualizerMode === 'machine' ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => onConfigChange({ visualizerMode: 'machine' })}
+            >
+              {t('Machine')}
+            </Button>
+            <Button
+              variant={config.visualizerMode === 'wcs' ? 'default' : 'outline'}
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => onConfigChange({ visualizerMode: 'wcs' })}
+            >
+              {t('WCS')}
+            </Button>
+          </div>
+        </SettingsField>
+
         <SettingsField
           label={t('Auto-switch to Monitor when jobs start')}
           description={t('Automatically navigate to the Monitor tab when starting a job from Setup')}
