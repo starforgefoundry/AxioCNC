@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { Camera, Terminal, Maximize2, Clock, FileText, Gauge, Columns3, PictureInPicture, ArrowLeftRight, RotateCcw, RotateCw, Square, ChevronDown, GripVertical, BarChart3, Wrench, ActivitySquare, ClipboardList, Move, Eye } from 'lucide-react'
+import { Camera, Terminal, Maximize2, Clock, FileText, Gauge, Columns3, PictureInPicture, ArrowLeftRight, RotateCcw, RotateCw, Square, ChevronDown, GripVertical, BarChart3, Wrench, ActivitySquare, ClipboardList, Move, Eye, SlidersHorizontal } from 'lucide-react'
 import Hls from 'hls.js'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
@@ -38,7 +38,6 @@ import {
   useFeedrate,
 } from '@/store/hooks'
 import { machineStateSync } from '@/services/machineStateSync'
-import { processGCode } from '@/lib/gcodeVisualizer'
 import { Vector3 } from 'three'
 import { machineToThree, type MachineLimits } from '@/lib/coordinates'
 import type { HomingCorner } from '@/lib/machineLimits'
@@ -64,6 +63,7 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { CurrentStatsPanel } from './panels/CurrentStatsPanel'
 import { ToolsUsedPanel } from './panels/ToolsUsedPanel'
+import { OverridePanel } from './panels/OverridePanel'
 import { JogPanel } from '../Setup/panels/JogPanel'
 import { formatTime } from '@/utils/formatTime'
 
@@ -267,11 +267,12 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
   }, [])
   const { data: settings } = useGetSettingsQuery()
   const dispatch = useAppDispatch()
+  const vizMode = settings?.machine?.visualizerMode ?? 'machine'
 
   // Get shared machine state for positions
   const workPosition = useWorkPosition()
   const connectedPort = useConnectedPort() // Use Redux state instead of settings
-  
+
   // G-code state for visualizer
   const [loadedGcode, setLoadedGcode] = useState<{ name: string; gcode: string } | null>(null)
   const [modelOffset, setModelOffset] = useState<{ x: number; y: number; z: number } | null>(null)
@@ -415,43 +416,23 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
       return
     }
 
-    const result = processGCode(loadedGcode.gcode)
-    
-    if (!result?.firstVertex) {
-      return
-    }
-
     const limits: MachineLimits = settings.machine.limits
     const homingCorner: HomingCorner = settings.machine.homingCorner ?? 'front-left'
-    
+
     // Calculate work offset: WorkOffset = MPos - WPos
     const workOffset = {
       x: machinePosition.x - workPosition.x,
       y: machinePosition.y - workPosition.y,
       z: machinePosition.z - workPosition.z
     }
-    
+
     // WCS origin (0,0,0) in machine coordinates is the work offset
     // Convert WCS origin to Three.js coordinates
+    // G-code coordinates are in WCS, so the offset to map them into Three.js space
+    // is simply the Three.js position of WCS (0,0,0)
     const wcsOriginThree = machineToThree(workOffset, limits, homingCorner)
-    
-    // G-code coordinates from gcode-toolpath are in WCS coordinates
-    // They are currently being rendered directly as Three.js coordinates (no conversion)
-    // So the G-code origin location in Three.js is just the firstVertex value
-    const gcodeOriginThree = {
-      x: result.firstVertex.x,
-      y: result.firstVertex.y,
-      z: result.firstVertex.z
-    }
-    
-    // Calculate offset to move G-code origin to WCS origin location
-    const offset = new Vector3(
-      wcsOriginThree.x - gcodeOriginThree.x,
-      wcsOriginThree.y - gcodeOriginThree.y,
-      wcsOriginThree.z - gcodeOriginThree.z
-    )
-    
-    const offsetValue = { x: offset.x, y: offset.y, z: offset.z }
+
+    const offsetValue = { x: wcsOriginThree.x, y: wcsOriginThree.y, z: wcsOriginThree.z }
     setModelOffset(offsetValue)
     placedGcodeRef.current = loadedGcode.name
     // Save offset to localStorage for persistence across views
@@ -481,14 +462,15 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
             ${viewMode === 'side-by-side' ? 'w-1/2' : 'w-full'}
             flex-1 relative
           `}>
-            <VisualizerScene 
-              gcode={loadedGcode?.gcode} 
+            <VisualizerScene
+              gcode={loadedGcode?.gcode}
               limits={settings?.machine?.limits}
               view={view}
               viewKey={viewKey}
               machinePosition={machinePosition}
-              modelOffset={modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
+              modelOffset={vizMode === 'machine' && modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
               processedLines={processedLines}
+              vizMode={vizMode}
             />
             {/* PiP camera overlay when visualizer is full screen */}
             {viewMode === 'pip-visual' && (
@@ -518,14 +500,15 @@ function VisualizerCameraView({ machinePosition, processedLines }: VisualizerCam
                   {t('3D View')}
                 </div>
                 <div className="w-full h-full">
-                  <VisualizerScene 
-                    gcode={loadedGcode?.gcode} 
+                  <VisualizerScene
+                    gcode={loadedGcode?.gcode}
                     limits={settings?.machine?.limits}
                     view={view}
                     viewKey={viewKey}
                     machinePosition={machinePosition}
-                    modelOffset={modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
+                    modelOffset={vizMode === 'machine' && modelOffset ? new Vector3(modelOffset.x, modelOffset.y, modelOffset.z) : undefined}
                     processedLines={processedLines}
+                    vizMode={vizMode}
                   />
                 </div>
               </div>
@@ -899,6 +882,7 @@ type PanelConfigRecord = Record<string, {
 
 function createPanelConfig(t: (key: string) => string): PanelConfigRecord {
   return {
+    overrides: { title: t('Overrides'), icon: SlidersHorizontal, component: OverridePanel },
     currentStats: { title: t('Current Stats'), icon: BarChart3, component: CurrentStatsPanel },
     toolsUsed: { title: t('Tools Used'), icon: Wrench, component: ToolsUsedPanel },
     jog: { title: t('Jog Control'), icon: Move, component: JogPanel },
@@ -1036,15 +1020,17 @@ export default function Monitor() {
     if (stored) {
       try {
         const parsed = JSON.parse(stored)
-        const validPanels = ['currentStats', 'toolsUsed', 'jog']
+        const validPanels = ['overrides', 'currentStats', 'toolsUsed', 'jog']
         if (Array.isArray(parsed) && parsed.every(id => validPanels.includes(id))) {
-          return parsed
+          // Add any new panels that aren't in the stored order
+          const missingPanels = validPanels.filter(id => !parsed.includes(id))
+          return [...parsed, ...missingPanels]
         }
       } catch {
         // Invalid JSON, use default
       }
     }
-    return ['currentStats', 'toolsUsed', 'jog']
+    return ['overrides', 'currentStats', 'toolsUsed', 'jog']
   })
   
   // Track which panels are collapsed

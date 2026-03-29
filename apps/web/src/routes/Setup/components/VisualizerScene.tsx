@@ -11,6 +11,8 @@ import { machineToThree, type MachineLimits, type Coordinate } from '@/lib/coord
 import type { HomingCorner } from '@/lib/machineLimits'
 import { processGCode } from '@/lib/gcodeVisualizer'
 
+export type VizMode = 'machine' | 'wcs'
+
 interface VisualizerSceneProps {
   gcode?: string | null
   limits?: MachineLimits
@@ -20,6 +22,7 @@ interface VisualizerSceneProps {
   modelOffset?: Vector3Type // Offset to apply to model (for "Place Model" feature)
   processedLines?: number // Number of G-code lines that have been processed (for animation)
   outlinePoints?: Array<{ x: number; y: number }> // Outline points to visualize
+  vizMode?: VizMode // 'machine' = absolute envelope view (default), 'wcs' = relative to gcode WCS origin
 }
 
 // Grid component - draws a grid on the z=0 plane, starting at origin and extending in positive X and Y
@@ -434,6 +437,60 @@ function BillboardText({ position, children, fontSize = 20, ...props }: React.Co
   )
 }
 
+// Simple WCS-mode axes at origin with labeled arrows
+function WCSAxes({ arrowLength = 50 }: { arrowLength?: number }) {
+  const scene = useThree((state) => state.scene)
+
+  useEffect(() => {
+    const headLength = arrowLength * 0.15
+    const headWidth = headLength * 0.3
+    const xArrow = new ArrowHelper(new Vector3(1, 0, 0), new Vector3(0, 0, 0), arrowLength, 0xff0000, headLength, headWidth)
+    const yArrow = new ArrowHelper(new Vector3(0, 1, 0), new Vector3(0, 0, 0), arrowLength, 0x00ff00, headLength, headWidth)
+    const zArrow = new ArrowHelper(new Vector3(0, 0, 1), new Vector3(0, 0, 0), arrowLength, 0x0000ff, headLength, headWidth)
+    scene.add(xArrow)
+    scene.add(yArrow)
+    scene.add(zArrow)
+
+    return () => {
+      scene.remove(xArrow)
+      scene.remove(yArrow)
+      scene.remove(zArrow)
+    }
+  }, [arrowLength, scene])
+
+  return null
+}
+
+// Infinite-style grid centered on WCS origin for WCS mode
+function WCSGrid({ size = 200, divisions = 20 }: { size?: number; divisions?: number }) {
+  const geometry = useMemo(() => {
+    const geo = new BufferGeometry()
+    const positions: number[] = []
+    const half = size / 2
+    const step = size / divisions
+
+    // Lines parallel to Y
+    for (let i = 0; i <= divisions; i++) {
+      const x = -half + i * step
+      positions.push(x, -half, 0, x, half, 0)
+    }
+    // Lines parallel to X
+    for (let i = 0; i <= divisions; i++) {
+      const y = -half + i * step
+      positions.push(-half, y, 0, half, y, 0)
+    }
+
+    geo.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+    return geo
+  }, [size, divisions])
+
+  return (
+    <lineSegments geometry={geometry}>
+      <lineBasicMaterial color="#666666" opacity={0.2} transparent />
+    </lineSegments>
+  )
+}
+
 // Camera controller component that responds to view changes
 function CameraController({ xSize, ySize, zSize, view, viewKey }: { xSize: number; ySize: number; zSize: number; view?: 'top' | 'front' | 'iso' | 'fit'; viewKey?: number }) {
   const { camera } = useThree()
@@ -545,7 +602,7 @@ function CameraController({ xSize, ySize, zSize, view, viewKey }: { xSize: numbe
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machinePosition, modelOffset, processedLines, outlinePoints }: VisualizerSceneProps = {}) {
+export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machinePosition, modelOffset, processedLines, outlinePoints, vizMode = 'machine' }: VisualizerSceneProps = {}) {
   const { t } = useTranslation()
   const [webglAvailable, setWebglAvailable] = useState<boolean | null>(null)
 
@@ -605,7 +662,24 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
   
   // Machine position for display (default to 0,0,0 if not available)
   const displayMachinePos = machinePosition || { x: 0, y: 0, z: 0 }
-  
+
+  // In WCS mode, compute bounding box from gcode to size the grid/camera
+  const wcsGcodeResult = useMemo(() => {
+    if (vizMode !== 'wcs' || !gcode) return null
+    return processGCode(gcode)
+  }, [vizMode, gcode])
+
+  const wcsSceneSize = useMemo(() => {
+    if (!wcsGcodeResult?.boundingBox) return 200
+    const bb = wcsGcodeResult.boundingBox
+    return Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, Math.abs(bb.max.z - bb.min.z), 100)
+  }, [wcsGcodeResult])
+
+  // Scene sizing depends on mode
+  const sceneXSize = vizMode === 'machine' ? xSize : wcsSceneSize
+  const sceneYSize = vizMode === 'machine' ? ySize : wcsSceneSize
+  const sceneZSize = vizMode === 'machine' ? zSize : wcsSceneSize
+
   if (!webglAvailable) {
     return (
       <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
@@ -626,79 +700,62 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
           far={10000}
           up={[0, 0, 1]}
         />
-        
+
         {/* Camera controls */}
-        <CameraController xSize={xSize} ySize={ySize} zSize={zSize} view={view} viewKey={viewKey} />
-        
+        <CameraController xSize={sceneXSize} ySize={sceneYSize} zSize={sceneZSize} view={view} viewKey={viewKey} />
+
         {/* Lighting */}
         <ambientLight intensity={0.8} />
         <directionalLight position={[10, 10, 10]} intensity={1.0} />
         <directionalLight position={[-10, -10, 5]} intensity={0.4} />
-        
-        {/* Grid on z=0 plane, using actual machine dimensions */}
-        <WorkGrid xSize={xSize} ySize={ySize} />
-        
-        {/* X-axis arrows - red arrows along X edges pointing in positive direction */}
-        <XAxisArrows xSize={xSize} ySize={ySize} arrowLength={20} />
-        
-        {/* Y-axis arrows - green arrows along Y edges pointing in positive direction */}
-        <YAxisArrows xSize={xSize} ySize={ySize} arrowLength={20} />
-        
-        {/* Z-axis arrows - blue arrow at origin, blue lines at other 3 corners */}
-        <ZAxisArrows length={zSize} arrowLength={20} gridSizeX={xSize} gridSizeY={ySize} />
-        
-        {/* Gray rectangle connecting the four tops of the Z-axis lines */}
-        <ZTopRectangle length={zSize} gridSizeX={xSize} gridSizeY={ySize} />
-        
-        {/* X-axis label - at y=0 edge */}
-        <BillboardText
-          position={[xSize / 2, -15, 0]}
-          fontSize={5}
-          color="#ff0000"
-          anchorX="center"
-          anchorY="middle"
-        >
-          X
-        </BillboardText>
-        
-        {/* Y-axis label - at x=0 edge */}
-        <BillboardText
-          position={[-15, ySize / 2, 0]}
-          fontSize={5}
-          color="#00ff00"
-          anchorX="center"
-          anchorY="middle"
-        >
-          Y
-        </BillboardText>
-        
-        {/* Z-axis label - near the Z arrow at origin */}
-        <BillboardText
-          position={[-15, -15, zSize / 2]}
-          fontSize={5}
-          color="#0000ff"
-          anchorX="center"
-          anchorY="middle"
-        >
-          Z
-        </BillboardText>
-        
-        {/* Origin marker - red dot at 0,0,0 */}
-        <mesh position={[0, 0, 0]}>
-          <sphereGeometry args={[2, 16, 16]} />
-          <meshStandardMaterial color="#ff0000" />
-        </mesh>
-        
-        {/* G-code toolpath visualization */}
+
+        {vizMode === 'machine' ? (
+          <>
+            {/* Machine envelope visualization */}
+            <WorkGrid xSize={xSize} ySize={ySize} />
+            <XAxisArrows xSize={xSize} ySize={ySize} arrowLength={20} />
+            <YAxisArrows xSize={xSize} ySize={ySize} arrowLength={20} />
+            <ZAxisArrows length={zSize} arrowLength={20} gridSizeX={xSize} gridSizeY={ySize} />
+            <ZTopRectangle length={zSize} gridSizeX={xSize} gridSizeY={ySize} />
+
+            <BillboardText position={[xSize / 2, -15, 0]} fontSize={5} color="#ff0000" anchorX="center" anchorY="middle">X</BillboardText>
+            <BillboardText position={[-15, ySize / 2, 0]} fontSize={5} color="#00ff00" anchorX="center" anchorY="middle">Y</BillboardText>
+            <BillboardText position={[-15, -15, zSize / 2]} fontSize={5} color="#0000ff" anchorX="center" anchorY="middle">Z</BillboardText>
+
+            {/* Origin marker */}
+            <mesh position={[0, 0, 0]}>
+              <sphereGeometry args={[2, 16, 16]} />
+              <meshStandardMaterial color="#ff0000" />
+            </mesh>
+
+            {/* Tool/endmill indicator - positioned at current machine coordinates */}
+            <ToolIndicator position={toolPosition} />
+          </>
+        ) : (
+          <>
+            {/* WCS mode: simple grid + axes at origin, no envelope */}
+            <WCSGrid size={wcsSceneSize * 2} divisions={20} />
+            <WCSAxes arrowLength={wcsSceneSize * 0.3} />
+
+            <BillboardText position={[wcsSceneSize * 0.32, 0, 0]} fontSize={5} color="#ff0000" anchorX="center" anchorY="middle">X</BillboardText>
+            <BillboardText position={[0, wcsSceneSize * 0.32, 0]} fontSize={5} color="#00ff00" anchorX="center" anchorY="middle">Y</BillboardText>
+            <BillboardText position={[0, 0, wcsSceneSize * 0.32]} fontSize={5} color="#0000ff" anchorX="center" anchorY="middle">Z</BillboardText>
+
+            {/* Origin marker */}
+            <mesh position={[0, 0, 0]}>
+              <sphereGeometry args={[1.5, 16, 16]} />
+              <meshStandardMaterial color="#ff0000" />
+            </mesh>
+          </>
+        )}
+
+        {/* G-code toolpath visualization (shown in both modes) */}
         <GCodeToolpath gcode={gcode} offset={modelOffset} processedLines={processedLines} />
-        
+
         {/* Outline visualization - pink line showing toolpath boundary */}
         {outlinePoints && outlinePoints.length > 0 && (
           <OutlinePath points={outlinePoints} offset={modelOffset} zHeight={machinePosition?.z ? machinePosition.z + 5 : 5} />
         )}
-        
-        {/* Tool/endmill indicator - positioned at current machine coordinates */}
-        <ToolIndicator position={toolPosition} />
       </Canvas>
       
       {/* Position readout overlay - only show if debug mode is enabled */}

@@ -114,6 +114,7 @@ const DEFAULT_MACHINE_CONFIG: MachineConfig = {
     zmax: 0,
   },
   homingCorner: 'front-left',  // Most common homing position
+  visualizerMode: 'machine' as const,
   autoSwitchToMonitorEnabled: true,   // Enabled by default
   toolSpinupDelayEnabled: true,   // Enabled by default
   toolSpinupDelaySeconds: 5,      // 5 seconds default delay
@@ -427,6 +428,9 @@ export default function Settings() {
       }
       
       // Controller settings
+      if (settings.machine?.visualizerMode !== undefined) {
+        setMachineConfig(prev => ({ ...prev, visualizerMode: settings.machine!.visualizerMode! }))
+      }
       if (settings.machine?.autoSwitchToMonitor !== undefined) {
         setMachineConfig(prev => ({ ...prev, autoSwitchToMonitorEnabled: settings.machine!.autoSwitchToMonitor! }))
       }
@@ -940,6 +944,7 @@ export default function Settings() {
             name: importedSettings.machine?.name ?? prev.name,
             limits: importedSettings.machine?.limits ?? prev.limits,
             homingCorner: importedSettings.machine?.homingCorner ?? prev.homingCorner,
+            visualizerMode: importedSettings.machine?.visualizerMode ?? prev.visualizerMode,
             autoSwitchToMonitorEnabled: importedSettings.machine?.autoSwitchToMonitor ?? prev.autoSwitchToMonitorEnabled,
             toolSpinupDelayEnabled: importedSettings.machine?.toolSpinup?.enabled ?? prev.toolSpinupDelayEnabled,
             toolSpinupDelaySeconds: importedSettings.machine?.toolSpinup?.delaySeconds ?? prev.toolSpinupDelaySeconds,
@@ -1119,6 +1124,7 @@ export default function Settings() {
       machine: {
         name: DEFAULT_MACHINE_CONFIG.name,
         limits: DEFAULT_MACHINE_CONFIG.limits,
+        visualizerMode: DEFAULT_MACHINE_CONFIG.visualizerMode,
         autoSwitchToMonitor: DEFAULT_MACHINE_CONFIG.autoSwitchToMonitorEnabled,
         toolSpinup: {
           enabled: DEFAULT_MACHINE_CONFIG.toolSpinupDelayEnabled,
@@ -1304,6 +1310,9 @@ export default function Settings() {
       if (changes.homingCorner !== undefined) {
         updated.homingCorner = changes.homingCorner
       }
+      if (changes.visualizerMode !== undefined) {
+        updated.visualizerMode = changes.visualizerMode
+      }
       if (changes.autoSwitchToMonitorEnabled !== undefined) {
         updated.autoSwitchToMonitorEnabled = changes.autoSwitchToMonitorEnabled
       }
@@ -1333,11 +1342,14 @@ export default function Settings() {
     
     // Save to backend
     const saveData: PartialSettings = {}
-    if (changes.name !== undefined || changes.limits || changes.homingCorner !== undefined || changes.autoSwitchToMonitorEnabled !== undefined) {
+    if (changes.name !== undefined || changes.limits || changes.homingCorner !== undefined || changes.visualizerMode !== undefined || changes.autoSwitchToMonitorEnabled !== undefined) {
       saveData.machine = saveData.machine || {}
       if (changes.name !== undefined) saveData.machine.name = changes.name
       if (changes.limits) saveData.machine.limits = changes.limits
       if (changes.homingCorner !== undefined) saveData.machine.homingCorner = changes.homingCorner
+      if (changes.visualizerMode !== undefined) {
+        saveData.machine.visualizerMode = changes.visualizerMode
+      }
       if (changes.autoSwitchToMonitorEnabled !== undefined) {
         saveData.machine.autoSwitchToMonitor = changes.autoSwitchToMonitorEnabled
       }

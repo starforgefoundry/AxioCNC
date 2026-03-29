@@ -55,6 +55,7 @@ export const MachineSettingsSchema = z.object({
   toolSpinup: ToolSpinupSchema.optional(),
   spindleWarmup: SpindleWarmupSchema.optional(),
   autoSwitchToMonitor: z.boolean().default(true),
+  visualizerMode: z.enum(['machine', 'wcs']).default('machine'),
 });
 
 // =============================================================================
