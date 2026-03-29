@@ -11,7 +11,6 @@ import { SingleMethodProbeFlow } from '@/components/SingleMethodProbeFlow'
 import { ToolChangeTab } from '@/components/ToolChangeTab'
 import { JobSetupWizard } from '@/components/JobSetupWizard'
 import { useToolChange } from '@/contexts/ToolChangeContext'
-import { processGCode } from '@/lib/gcodeVisualizer'
 import { calculateOutline, type Point2D } from '@/lib/gcodeOutline'
 import { Vector3 } from 'three'
 import { machineToThree, type MachineLimits } from '@/lib/coordinates'
@@ -491,43 +490,23 @@ export function VisualizerPanel({
       return
     }
 
-    const result = processGCode(loadedGcode.gcode)
-    
-    if (!result?.firstVertex) {
-      return
-    }
-
     const limits: MachineLimits = settings.machine.limits
     const homingCorner: HomingCorner = settings.machine.homingCorner ?? 'front-left'
-    
+
     // Calculate work offset: WorkOffset = MPos - WPos
     const workOffset = {
       x: machinePosition.x - workPosition.x,
       y: machinePosition.y - workPosition.y,
       z: machinePosition.z - workPosition.z
     }
-    
+
     // WCS origin (0,0,0) in machine coordinates is the work offset
     // Convert WCS origin to Three.js coordinates
+    // G-code coordinates are in WCS, so the offset to map them into Three.js space
+    // is simply the Three.js position of WCS (0,0,0)
     const wcsOriginThree = machineToThree(workOffset, limits, homingCorner)
-    
-    // G-code coordinates from gcode-toolpath are in WCS coordinates
-    // They are currently being rendered directly as Three.js coordinates (no conversion)
-    // So the G-code origin location in Three.js is just the firstVertex value
-    const gcodeOriginThree = {
-      x: result.firstVertex.x,
-      y: result.firstVertex.y,
-      z: result.firstVertex.z
-    }
-    
-    // Calculate offset to move G-code origin to WCS origin location
-    const offset = new Vector3(
-      wcsOriginThree.x - gcodeOriginThree.x,
-      wcsOriginThree.y - gcodeOriginThree.y,
-      wcsOriginThree.z - gcodeOriginThree.z
-    )
-    
-    const offsetValue = { x: offset.x, y: offset.y, z: offset.z }
+
+    const offsetValue = { x: wcsOriginThree.x, y: wcsOriginThree.y, z: wcsOriginThree.z }
     setModelOffset(offsetValue)
     placedGcodeRef.current = loadedGcode.name
     // Save offset to localStorage for persistence across views
@@ -546,43 +525,23 @@ export function VisualizerPanel({
       return
     }
 
-    const result = processGCode(loadedGcode.gcode)
-    
-    if (!result?.firstVertex) {
-      return
-    }
-
     const limits: MachineLimits = settings.machine.limits
     const homingCorner: HomingCorner = settings.machine.homingCorner ?? 'front-left'
-    
+
     // Calculate work offset: WorkOffset = MPos - WPos
     const workOffset = {
       x: machinePosition.x - workPosition.x,
       y: machinePosition.y - workPosition.y,
       z: machinePosition.z - workPosition.z
     }
-    
+
     // WCS origin (0,0,0) in machine coordinates is the work offset
     // Convert WCS origin to Three.js coordinates
+    // G-code coordinates are in WCS, so the offset to map them into Three.js space
+    // is simply the Three.js position of WCS (0,0,0)
     const wcsOriginThree = machineToThree(workOffset, limits, homingCorner)
-    
-    // G-code coordinates from gcode-toolpath are in WCS coordinates
-    // They are currently being rendered directly as Three.js coordinates (no conversion)
-    // So the G-code origin location in Three.js is just the firstVertex value
-    const gcodeOriginThree = {
-      x: result.firstVertex.x,
-      y: result.firstVertex.y,
-      z: result.firstVertex.z
-    }
-    
-    // Calculate offset to move G-code origin to WCS origin location
-    const offset = new Vector3(
-      wcsOriginThree.x - gcodeOriginThree.x,
-      wcsOriginThree.y - gcodeOriginThree.y,
-      wcsOriginThree.z - gcodeOriginThree.z
-    )
-    
-    const offsetValue = { x: offset.x, y: offset.y, z: offset.z }
+
+    const offsetValue = { x: wcsOriginThree.x, y: wcsOriginThree.y, z: wcsOriginThree.z }
     setModelOffset(offsetValue)
     placedGcodeRef.current = loadedGcode.name
     // Save offset to localStorage for persistence across views
