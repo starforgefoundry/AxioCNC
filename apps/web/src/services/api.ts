@@ -38,8 +38,8 @@ export interface MachineStatus {
   homingInProgress: boolean
   controllerState: {
     activeState: string
-    mpos: { x: string; y: string; z: string } | null
-    wpos: { x: string; y: string; z: string } | null
+    mpos: { x: string; y: string; z: string; a?: string; b?: string; c?: string } | null
+    wpos: { x: string; y: string; z: string; a?: string; b?: string; c?: string } | null
     pinState?: string | null // Grbl v1.1: input pin state ('XYZPDHRS' indicates triggered pins)
     accessoryState?: string | null // Grbl v1.1: accessory state ('SCFM' indicates spindle/coolant state)
     ov?: number[] | null // Grbl v1.1: override values [feed%, rapid%, spindle%]
