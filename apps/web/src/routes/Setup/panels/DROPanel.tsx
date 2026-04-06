@@ -26,14 +26,25 @@ const DEFAULT_WORKSPACE_NAMES: Record<string, string> = {
   'G55': 'Fixture 2',
 }
 
-export function DROPanel({ 
-  isConnected, 
-  connectedPort, 
-  machineStatus, 
-  onFlashStatus, 
-  machinePosition = { x: 0, y: 0, z: 0 }, 
-  workPosition = { x: 0, y: 0, z: 0 }, 
-  currentWCS = 'G54' 
+// Axis color/style configuration
+const AXIS_STYLES: Record<string, { color: string; bgColor: string; borderColor: string }> = {
+  X: { color: 'text-red-500', bgColor: 'bg-red-500/10', borderColor: 'border-red-500/30' },
+  Y: { color: 'text-green-500', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/30' },
+  Z: { color: 'text-blue-500', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30' },
+  A: { color: 'text-orange-500', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30' },
+  B: { color: 'text-purple-500', bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500/30' },
+  C: { color: 'text-cyan-500', bgColor: 'bg-cyan-500/10', borderColor: 'border-cyan-500/30' },
+}
+
+export function DROPanel({
+  isConnected,
+  connectedPort,
+  machineStatus,
+  onFlashStatus,
+  machinePosition = { x: 0, y: 0, z: 0 },
+  workPosition = { x: 0, y: 0, z: 0 },
+  currentWCS = 'G54',
+  availableAxes = ['x', 'y', 'z'],
 }: PanelProps) {
   const { t } = useTranslation()
   const [editDialogOpen, setEditDialogOpen] = useState(false)
@@ -63,13 +74,13 @@ export function DROPanel({
   const { clearBitsetterReference } = useBitsetterReference()
   
   // Handle zero out work offset for a single axis
-  const handleZeroAxis = useCallback(async (axis: 'X' | 'Y' | 'Z') => {
+  const handleZeroAxis = useCallback(async (axis: string) => {
     // Clear bitsetter reference if Z zero is being set (bitsetter reference becomes invalid)
     if (axis === 'Z') {
       await clearBitsetterReference(workspace)
     }
-    
-    const axisLower = axis.toLowerCase() as 'x' | 'y' | 'z'
+
+    const axisLower = axis.toLowerCase()
     const gcode = buildSetZeroCommand(workspace, axisLower)
     if (gcode) {
       sendGcode(gcode)
@@ -80,28 +91,30 @@ export function DROPanel({
   const handleZeroAll = useCallback(async () => {
     // Clear bitsetter reference when zeroing all axes (includes Z)
     await clearBitsetterReference(workspace)
-    
-    const gcode = buildSetZeroCommand(workspace, 'xyz')
+
+    const allAxes = availableAxes.join('')
+    const gcode = buildSetZeroCommand(workspace, allAxes)
     if (gcode) {
       sendGcode(gcode)
     }
-  }, [workspace, clearBitsetterReference, sendGcode])
+  }, [workspace, availableAxes, clearBitsetterReference, sendGcode])
   
   // Handle go to work zero for a single axis
-  const handleGoToZeroAxis = useCallback((axis: 'X' | 'Y' | 'Z') => {
+  const handleGoToZeroAxis = useCallback((axis: string) => {
     const gcode = buildGoToZeroCommand(axis)
     if (gcode) {
       sendGcode(gcode)
     }
   }, [sendGcode])
-  
+
   // Handle go to work zero for all axes
   const handleGoToZeroAll = useCallback(() => {
-    const gcode = buildGoToZeroCommand('XYZ')
+    const allAxes = availableAxes.map(a => a.toUpperCase()).join('')
+    const gcode = buildGoToZeroCommand(allAxes)
     if (gcode) {
       sendGcode(gcode)
     }
-  }, [sendGcode])
+  }, [availableAxes, sendGcode])
   
   const handleEditClick = () => {
     setEditDialogOpen(true)
@@ -126,11 +139,15 @@ export function DROPanel({
     }
   }, [workspace, savedWorkspaces, setExtensions])
   
-  const axes = [
-    { axis: 'X' as const, color: 'text-red-500', bgColor: 'bg-red-500/10', borderColor: 'border-red-500/30', mpos: machinePosition.x, wpos: workPosition.x },
-    { axis: 'Y' as const, color: 'text-green-500', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/30', mpos: machinePosition.y, wpos: workPosition.y },
-    { axis: 'Z' as const, color: 'text-blue-500', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30', mpos: machinePosition.z, wpos: workPosition.z },
-  ]
+  const axes = useMemo(() => {
+    return availableAxes.map(a => {
+      const upper = a.toUpperCase()
+      const style = AXIS_STYLES[upper] || AXIS_STYLES.X
+      const mpos = (machinePosition as Record<string, number | undefined>)[a] ?? 0
+      const wpos = (workPosition as Record<string, number | undefined>)[a] ?? 0
+      return { axis: upper, ...style, mpos, wpos }
+    })
+  }, [availableAxes, machinePosition, workPosition])
 
   return (
     <div className="p-3 space-y-2">

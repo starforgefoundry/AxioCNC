@@ -6,8 +6,9 @@ export interface PanelProps {
   connectedPort: string | null
   machineStatus: 'not_connected' | 'connected_pre_home' | 'connected_post_home' | 'alarm' | 'running' | 'hold' | 'error'
   onFlashStatus: () => void
-  machinePosition?: { x: number; y: number; z: number }
-  workPosition?: { x: number; y: number; z: number }
+  machinePosition?: { x: number; y: number; z: number; a?: number; b?: number; c?: number }
+  workPosition?: { x: number; y: number; z: number; a?: number; b?: number; c?: number }
+  availableAxes?: ('x' | 'y' | 'z' | 'a' | 'b' | 'c')[]
   currentWCS?: string
   isJobRunning?: boolean
   spindleState?: 'M3' | 'M4' | 'M5'

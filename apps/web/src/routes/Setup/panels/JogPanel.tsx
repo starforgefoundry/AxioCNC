@@ -14,7 +14,14 @@ import { useGetExtensionsQuery } from '@/services/api'
 import { trackFeatureUsed } from '@/services/analytics'
 import type { PanelProps } from '../types'
 
-export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashStatus }: PanelProps) {
+// Rotary axis color mapping
+const ROTARY_AXIS_COLORS: Record<string, string> = {
+  A: 'text-orange-500',
+  B: 'text-purple-500',
+  C: 'text-cyan-500',
+}
+
+export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashStatus, availableAxes = ['x', 'y', 'z'] }: PanelProps) {
   const { t } = useTranslation()
   // Load mode from localStorage or use default
   const [mode, setMode] = useState<'steps' | 'analog'>(() => {
@@ -37,29 +44,41 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
   // G-code command hook
   const { sendGcode } = useGcodeCommand(connectedPort)
   
-  // Handle jog command
-  const handleJog = useCallback((x: number, y: number, z: number) => {
+  // Determine which rotary axes are available
+  const rotaryAxes = availableAxes.filter(a => a === 'a' || a === 'b' || a === 'c')
+
+  // Handle jog command - supports any combination of axes
+  const handleJog = useCallback((moves: Record<string, number>) => {
     const distance = currentDistance
 
     // Build the movement command
     const parts: string[] = []
-    if (x !== 0) parts.push(`X${x * distance}`)
-    if (y !== 0) parts.push(`Y${y * distance}`)
-    if (z !== 0) parts.push(`Z${z * distance}`)
-    
+    for (const [axis, dir] of Object.entries(moves)) {
+      if (dir !== 0) parts.push(`${axis.toUpperCase()}${dir * distance}`)
+    }
+
     if (parts.length === 0) return
-    
+
     const command = parts.join(' ')
-    
+
     // Track feature usage
-    const axis = x !== 0 ? 'x' : y !== 0 ? 'y' : 'z'
-    trackFeatureUsed('jog', 'JogPanel', `jog_${axis}`, distance)
-    
+    const firstAxis = Object.keys(moves).find(a => moves[a] !== 0) || 'x'
+    trackFeatureUsed('jog', 'JogPanel', `jog_${firstAxis}`, distance)
+
     // Send jog commands: G91 (relative), G0 (rapid move), G90 (absolute)
     sendGcode('G91') // relative mode
     sendGcode(`G0 ${command}`) // rapid move
     sendGcode('G90') // absolute mode
   }, [currentDistance, sendGcode])
+
+  // Handle go to zero for a rotary axis
+  const handleGoToZeroRotary = useCallback((axis: string) => {
+    trackFeatureUsed('jog', 'JogPanel', `go_to_zero_${axis.toLowerCase()}`)
+    const gcode = buildGoToZeroCommand(axis.toUpperCase())
+    if (gcode) {
+      sendGcode(gcode)
+    }
+  }, [sendGcode])
   
   // Handle go to zero for XY axes
   const handleGoToZeroXY = useCallback(() => {
@@ -261,7 +280,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(-1, 1, 0)}
+                onAction={() => handleJog({ x: -1, y: 1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -273,7 +292,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(0, 1, 0)}
+                onAction={() => handleJog({ y: 1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -285,7 +304,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(1, 1, 0)}
+                onAction={() => handleJog({ x: 1, y: 1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -298,7 +317,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(-1, 0, 0)}
+                onAction={() => handleJog({ x: -1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -323,7 +342,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(1, 0, 0)}
+                onAction={() => handleJog({ x: 1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -336,7 +355,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(-1, -1, 0)}
+                onAction={() => handleJog({ x: -1, y: -1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -348,7 +367,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(0, -1, 0)}
+                onAction={() => handleJog({ y: -1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -360,7 +379,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(1, -1, 0)}
+                onAction={() => handleJog({ x: 1, y: -1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -376,7 +395,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(0, 0, 1)}
+                onAction={() => handleJog({ z: 1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -401,7 +420,7 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
                 connectedPort={connectedPort}
                 machineStatus={machineStatus}
                 onFlashStatus={onFlashStatus}
-                onAction={() => handleJog(0, 0, -1)}
+                onAction={() => handleJog({ z: -1 })}
                 requirements={ActionRequirements.jog}
                 variant="secondary"
                 className="aspect-square p-0"
@@ -410,13 +429,67 @@ export function JogPanel({ isConnected, connectedPort, machineStatus, onFlashSta
               </MachineActionButton>
             </div>
           </div>
-          
+
+          {/* Rotary axis controls - shown conditionally */}
+          {rotaryAxes.length > 0 && (
+            <div className="flex items-center justify-center gap-6">
+              {rotaryAxes.map(axis => {
+                const upper = axis.toUpperCase()
+                const colorClass = ROTARY_AXIS_COLORS[upper] || 'text-muted-foreground'
+                return (
+                  <div key={axis} className="flex items-center gap-1">
+                    <MachineActionButton
+                      isConnected={isConnected}
+                      connectedPort={connectedPort}
+                      machineStatus={machineStatus}
+                      onFlashStatus={onFlashStatus}
+                      onAction={() => handleJog({ [axis]: -1 })}
+                      requirements={ActionRequirements.jog}
+                      variant="secondary"
+                      size="sm"
+                      className="w-9 h-9 p-0"
+                    >
+                      <ChevronLeft className={`w-4 h-4 ${colorClass}`} />
+                    </MachineActionButton>
+                    <MachineActionButton
+                      isConnected={isConnected}
+                      connectedPort={connectedPort}
+                      machineStatus={machineStatus}
+                      onFlashStatus={onFlashStatus}
+                      onAction={() => handleGoToZeroRotary(upper)}
+                      requirements={ActionRequirements.jog}
+                      variant="outline"
+                      size="sm"
+                      className={`w-9 h-9 p-0 text-xs font-bold ${colorClass}`}
+                      title={t('Go to {{axis}} zero', { axis: upper })}
+                    >
+                      {upper} 0
+                    </MachineActionButton>
+                    <MachineActionButton
+                      isConnected={isConnected}
+                      connectedPort={connectedPort}
+                      machineStatus={machineStatus}
+                      onFlashStatus={onFlashStatus}
+                      onAction={() => handleJog({ [axis]: 1 })}
+                      requirements={ActionRequirements.jog}
+                      variant="secondary"
+                      size="sm"
+                      className="w-9 h-9 p-0"
+                    >
+                      <ChevronRight className={`w-4 h-4 ${colorClass}`} />
+                    </MachineActionButton>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {/* Distance selector */}
           <div className="space-y-2">
             <div className="text-xs text-muted-foreground flex justify-between">
               <span>{t('Distance')}</span>
               <span className="font-mono font-medium">
-                {currentDistance} {t('mm')}
+                {currentDistance} {rotaryAxes.length > 0 ? t('mm / deg') : t('mm')}
               </span>
             </div>
             <MachineActionWrapper

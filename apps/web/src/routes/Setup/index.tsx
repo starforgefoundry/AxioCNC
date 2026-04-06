@@ -22,6 +22,7 @@ import {
   useWorkPosition,
   useSpindleState,
   useSpindleSpeed,
+  useAvailableAxes,
 } from '@/store/hooks'
 import { machineStateSync } from '@/services/machineStateSync'
 import { setConnecting, setFlashing } from '@/store/machineSlice'
@@ -443,6 +444,7 @@ export default function Setup() {
   const workflowState = useWorkflowState()
   const machinePosition = useMachinePosition()
   const workPosition = useWorkPosition()
+  const availableAxes = useAvailableAxes()
   const spindleState = useSpindleState()
   const spindleSpeed = useSpindleSpeed()
   
@@ -1069,6 +1071,7 @@ export default function Setup() {
                         machinePosition,
                         workPosition,
                         currentWCS,
+                        availableAxes,
                         isJobRunning,
                         spindleState,
                         spindleSpeed,
@@ -1096,7 +1099,8 @@ export default function Setup() {
                     onFlashStatus: flashStatus,
                     machinePosition,
                     workPosition,
-                    currentWCS
+                    currentWCS,
+                    availableAxes,
                   }}
                 />
               ) : null}

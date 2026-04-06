@@ -31,15 +31,19 @@ export function getWCSPNumber(wcs: string): number {
  */
 export function buildSetZeroCommand(
   wcs: string,
-  axes: 'x' | 'y' | 'z' | 'xy' | 'xz' | 'yz' | 'xyz'
+  axes: string
 ): string {
   const p = getWCSPNumber(wcs)
   const axisParts: string[] = []
-  
-  if (axes.includes('x')) axisParts.push('X0')
-  if (axes.includes('y')) axisParts.push('Y0')
-  if (axes.includes('z')) axisParts.push('Z0')
-  
+  const lower = axes.toLowerCase()
+
+  if (lower.includes('x')) axisParts.push('X0')
+  if (lower.includes('y')) axisParts.push('Y0')
+  if (lower.includes('z')) axisParts.push('Z0')
+  if (lower.includes('a')) axisParts.push('A0')
+  if (lower.includes('b')) axisParts.push('B0')
+  if (lower.includes('c')) axisParts.push('C0')
+
   return `G10 L20 P${p} ${axisParts.join(' ')}`
 }
 
@@ -52,7 +56,7 @@ export function buildSetZeroCommand(
  */
 export function buildSetZeroWithOffsetCommand(
   wcs: string,
-  axis: 'X' | 'Y' | 'Z',
+  axis: 'X' | 'Y' | 'Z' | 'A' | 'B' | 'C',
   value: number
 ): string {
   const p = getWCSPNumber(wcs)
@@ -67,13 +71,16 @@ export function buildSetZeroWithOffsetCommand(
  * buildRapidMoveCommand({ z: 10 }) // 'G0 Z10'
  */
 export function buildRapidMoveCommand(
-  position: Partial<{ x: number; y: number; z: number }>
+  position: Partial<{ x: number; y: number; z: number; a: number; b: number; c: number }>
 ): string {
   const parts: string[] = []
   if (position.x !== undefined) parts.push(`X${position.x}`)
   if (position.y !== undefined) parts.push(`Y${position.y}`)
   if (position.z !== undefined) parts.push(`Z${position.z}`)
-  
+  if (position.a !== undefined) parts.push(`A${position.a}`)
+  if (position.b !== undefined) parts.push(`B${position.b}`)
+  if (position.c !== undefined) parts.push(`C${position.c}`)
+
   if (parts.length === 0) return ''
   return `G0 ${parts.join(' ')}`
 }
@@ -85,12 +92,15 @@ export function buildRapidMoveCommand(
  * buildGoToZeroCommand('X') // 'G0 X0'
  * buildGoToZeroCommand('xy') // 'G0 X0 Y0'
  */
-export function buildGoToZeroCommand(axes: 'X' | 'Y' | 'Z' | 'XY' | 'XYZ'): string {
+export function buildGoToZeroCommand(axes: string): string {
   const parts: string[] = []
   if (axes.includes('X')) parts.push('X0')
   if (axes.includes('Y')) parts.push('Y0')
   if (axes.includes('Z')) parts.push('Z0')
-  
+  if (axes.includes('A')) parts.push('A0')
+  if (axes.includes('B')) parts.push('B0')
+  if (axes.includes('C')) parts.push('C0')
+
   return `G0 ${parts.join(' ')}`
 }
 
