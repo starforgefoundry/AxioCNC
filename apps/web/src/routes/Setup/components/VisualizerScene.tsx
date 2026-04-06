@@ -220,7 +220,9 @@ function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string |
   const geometryRef = useRef<BufferGeometry | null>(null)
   const framesRef = useRef<Array<{ data: string; vertexIndex: number }>>([])
   const originalColorsRef = useRef<Float32Array | null>(null)
+  const prevProcessedLinesRef = useRef(0) // Track previous count for incremental updates
   const redColor = useMemo(() => new Color(1, 0, 0), []) // Red color for processed lines
+  const invalidate = useThree((state) => state.invalidate)
 
   const geometry = useMemo(() => {
     const result = processGCode(gcode)
@@ -228,6 +230,7 @@ function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string |
       geometryRef.current = null
       framesRef.current = []
       originalColorsRef.current = null
+      prevProcessedLinesRef.current = 0
       return null
     }
 
@@ -235,6 +238,7 @@ function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string |
     framesRef.current = result.frames
     const colorAttr = result.geometry.getAttribute('color') as BufferAttribute
     originalColorsRef.current = colorAttr ? (colorAttr.array as Float32Array).slice() : null
+    prevProcessedLinesRef.current = 0 // Reset on new geometry
 
     // Apply offset if provided
     if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
@@ -271,7 +275,7 @@ function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string |
     offset,
   ])
 
-  // Update colors based on processed lines
+  // Update colors based on processed lines - incremental updates only paint the delta
   useEffect(() => {
     if (!geometryRef.current || !originalColorsRef.current || framesRef.current.length === 0) {
       return
@@ -287,29 +291,48 @@ function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string |
     }
 
     const colors = colorAttr.array as Float32Array
+    const current = Math.min(processedLines ?? 0, frames.length)
+    const prev = prevProcessedLinesRef.current
 
-    // Reset all colors to original
-    colors.set(originalColors)
+    if (current === prev) {
+      return // No change
+    }
 
-    // Turn processed lines red
-    const linesToPaint = Math.min(processedLines ?? 0, frames.length)
-    for (let i = 0; i < linesToPaint; i++) {
-      const frame = frames[i]
-      const startVertexIndex = frame.vertexIndex
-      // Find the end vertex index (next frame's vertexIndex, or end of geometry)
-      const endVertexIndex = i < frames.length - 1 ? frames[i + 1].vertexIndex : colors.length / 3
+    if (current > prev) {
+      // Incremental: only paint newly processed lines red
+      for (let i = prev; i < current; i++) {
+        const frame = frames[i]
+        const startVertexIndex = frame.vertexIndex
+        const endVertexIndex = i < frames.length - 1 ? frames[i + 1].vertexIndex : colors.length / 3
 
-      // Update colors for all vertices in this line segment
-      for (let v = startVertexIndex; v < endVertexIndex; v++) {
-        const colorIndex = v * 3
-        colors[colorIndex] = redColor.r
-        colors[colorIndex + 1] = redColor.g
-        colors[colorIndex + 2] = redColor.b
+        for (let v = startVertexIndex; v < endVertexIndex; v++) {
+          const colorIndex = v * 3
+          colors[colorIndex] = redColor.r
+          colors[colorIndex + 1] = redColor.g
+          colors[colorIndex + 2] = redColor.b
+        }
+      }
+    } else {
+      // Went backwards (e.g. reset) - restore original colors then repaint
+      colors.set(originalColors)
+      for (let i = 0; i < current; i++) {
+        const frame = frames[i]
+        const startVertexIndex = frame.vertexIndex
+        const endVertexIndex = i < frames.length - 1 ? frames[i + 1].vertexIndex : colors.length / 3
+
+        for (let v = startVertexIndex; v < endVertexIndex; v++) {
+          const colorIndex = v * 3
+          colors[colorIndex] = redColor.r
+          colors[colorIndex + 1] = redColor.g
+          colors[colorIndex + 2] = redColor.b
+        }
       }
     }
 
+    prevProcessedLinesRef.current = current
     colorAttr.needsUpdate = true
-  }, [processedLines, redColor])
+    invalidate() // Request re-render for demand mode
+  }, [processedLines, redColor, invalidate])
 
   // Create line object - must be before early return to satisfy Rules of Hooks
   const lineObject = useMemo(() => {
@@ -407,23 +430,18 @@ function ToolIndicator({ position = [0, 0, 50] }: { position?: [number, number, 
 function BillboardText({ position, children, fontSize = 20, ...props }: React.ComponentProps<typeof Text>) {
   const groupRef = useRef<Group>(null)
   const { camera } = useThree()
-  
+
   useFrame(() => {
     if (groupRef.current) {
       // Face camera
       groupRef.current.quaternion.copy(camera.quaternion)
-      
+
       // Calculate distance from camera to text position
       const distance = camera.position.distanceTo(groupRef.current.position)
-      
-      // Scale proportionally with distance to maintain constant screen size
-      // As camera moves farther, scale increases to keep text same size on screen
-      // Base distance reference: use a reference distance (e.g., 100 units)
-      // Scale = currentDistance / referenceDistance
+
       const referenceDistance = 100
       const scale = distance / referenceDistance
-      
-      // Scale the entire group (which contains the Text)
+
       groupRef.current.scale.setScalar(scale)
     }
   })
@@ -493,7 +511,7 @@ function WCSGrid({ size = 200, divisions = 20 }: { size?: number; divisions?: nu
 
 // Camera controller component that responds to view changes
 function CameraController({ xSize, ySize, zSize, view, viewKey }: { xSize: number; ySize: number; zSize: number; view?: 'top' | 'front' | 'iso' | 'fit'; viewKey?: number }) {
-  const { camera } = useThree()
+  const { camera, invalidate } = useThree()
   const controlsRef = useRef<ComponentRef<typeof OrbitControls>>(null)
   
   const gridCenterX = xSize / 2
@@ -585,16 +603,18 @@ function CameraController({ xSize, ySize, zSize, view, viewKey }: { xSize: numbe
       }
       controls.update()
     }
-  }, [view, viewKey, camera, gridCenterX, gridCenterY, gridCenterZ, maxGridSize, xSize, ySize, zSize])
-  
+    invalidate() // Request re-render after camera change in demand mode
+  }, [view, viewKey, camera, invalidate, gridCenterX, gridCenterY, gridCenterZ, maxGridSize, xSize, ySize, zSize])
+
   return (
-    <OrbitControls 
-      ref={controlsRef} 
-      enableDamping 
-      dampingFactor={0.05} 
-      target={[gridCenterX, gridCenterY, gridCenterZ]} 
-      minDistance={1} 
+    <OrbitControls
+      ref={controlsRef}
+      enableDamping
+      dampingFactor={0.05}
+      target={[gridCenterX, gridCenterY, gridCenterZ]}
+      minDistance={1}
       maxDistance={maxGridSize * 3}
+      onChange={() => invalidate()} // Re-render on orbit interaction
       // Ensure Z is always up for natural CNC machine orientation
       // This makes orbiting feel more natural with the front of the work envelope as the natural viewing direction
     />
@@ -690,7 +710,7 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
 
   return (
     <div className="relative w-full h-full">
-      <Canvas>
+      <Canvas frameloop="demand">
         {/* Camera setup - positioned to see the full grid */}
         <PerspectiveCamera
           makeDefault

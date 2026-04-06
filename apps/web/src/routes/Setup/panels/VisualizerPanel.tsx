@@ -458,10 +458,11 @@ export function VisualizerPanel({
 
   // Recalculate outline when G-code changes
   // Note: machinePosition is only used for generating outline commands, not for hull calculation
-  // so we don't need to recalculate when the toolhead moves
+  // so we intentionally exclude it from deps to avoid recalculating on every position update
   useEffect(() => {
-    if (loadedGcode?.gcode && machinePosition) {
-      const outlineResult = calculateOutline(loadedGcode.gcode, machinePosition, { 
+    if (loadedGcode?.gcode) {
+      const currentMachinePosition = machinePositionRef.current
+      const outlineResult = calculateOutline(loadedGcode.gcode, currentMachinePosition, {
         concavity: 2,
         minPointDistance: 1, // 1mm minimum distance between points
       })
@@ -473,7 +474,7 @@ export function VisualizerPanel({
     } else {
       setOutlinePoints(null)
     }
-  }, [loadedGcode?.gcode, machinePosition])
+  }, [loadedGcode?.gcode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Automatically place model at WCS origin when G-code is loaded
   useEffect(() => {
