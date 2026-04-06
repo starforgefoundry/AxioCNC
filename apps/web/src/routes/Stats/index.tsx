@@ -45,14 +45,21 @@ interface OperationType {
   bgColor: string
 }
 
-// Mock data types
+// Axis color mapping for distance display
+const AXIS_COLORS: Record<string, string> = {
+  X: 'text-red-500',
+  Y: 'text-green-500',
+  Z: 'text-blue-500',
+  A: 'text-orange-500',
+  B: 'text-purple-500',
+  C: 'text-cyan-500',
+}
+
 interface CumulativeStats {
   totalJobs: number
   totalRuntime: number // milliseconds
   totalDistance: number // mm
-  distanceX: number // mm
-  distanceY: number // mm
-  distanceZ: number // mm
+  distanceByAxis: Record<string, number>
   successfulJobs: number
   failedJobs: number
   cancelledJobs: number
@@ -88,9 +95,7 @@ interface JobStats {
   linesProcessed: number
   totalLines: number
   distance: number // mm (total)
-  distanceX: number // mm
-  distanceY: number // mm
-  distanceZ: number // mm
+  distanceByAxis: Record<string, number>
   gcode?: string // G-code content for visualization
   operationTypes?: OperationType[] // Operation type breakdown for this job
 }
@@ -159,9 +164,7 @@ export default function Stats() {
         totalJobs: 0,
         totalRuntime: 0,
         totalDistance: 0,
-        distanceX: 0,
-        distanceY: 0,
-        distanceZ: 0,
+        distanceByAxis: {},
         successfulJobs: 0,
         failedJobs: 0,
         cancelledJobs: 0,
@@ -170,14 +173,12 @@ export default function Stats() {
     }
     
     // Calculate cumulative axis distances from all jobs
-    let cumulativeDistanceX = 0
-    let cumulativeDistanceY = 0
-    let cumulativeDistanceZ = 0
+    const cumulativeDistanceByAxis: Record<string, number> = {}
     let cumulativeTotalDistance = 0
     let cumulativeCuttingDistance = 0
     let cumulativeTransitionDistance = 0
     let cumulativeRetractDistance = 0
-    
+
     if (jobHistoryData && jobHistoryData.length > 0) {
       jobHistoryData.forEach(job => {
         // Extract distance data from nested structure
@@ -185,10 +186,13 @@ export default function Stats() {
         const cuttingDist = job.stats?.cuttingDistance || { x: 0, y: 0, z: 0, total: 0 }
         const transitionDist = job.stats?.transitionDistance || { x: 0, y: 0, z: 0, total: 0 }
         const retractDist = job.stats?.retractDistance || { x: 0, y: 0, z: 0, total: 0 }
-        
-        cumulativeDistanceX += totalDist.x || 0
-        cumulativeDistanceY += totalDist.y || 0
-        cumulativeDistanceZ += totalDist.z || 0
+
+        // Accumulate per-axis distances dynamically
+        for (const [key, val] of Object.entries(totalDist)) {
+          if (key !== 'total' && typeof val === 'number') {
+            cumulativeDistanceByAxis[key] = (cumulativeDistanceByAxis[key] || 0) + val
+          }
+        }
         cumulativeTotalDistance += totalDist.total || 0
         cumulativeCuttingDistance += cuttingDist.total || 0
         cumulativeTransitionDistance += transitionDist.total || 0
@@ -231,9 +235,7 @@ export default function Stats() {
       totalJobs: statsData?.totalJobs || 0,
       totalRuntime: statsData?.totalTime || 0,
       totalDistance: statsData?.totalDistance || cumulativeTotalDistance,
-      distanceX: cumulativeDistanceX,
-      distanceY: cumulativeDistanceY,
-      distanceZ: cumulativeDistanceZ,
+      distanceByAxis: cumulativeDistanceByAxis,
       successfulJobs: statsData?.successfulJobs || 0,
       failedJobs: statsData?.failedJobs || 0,
       cancelledJobs: statsData?.stoppedJobs || 0, // Map stopped to cancelled
@@ -428,9 +430,9 @@ export default function Stats() {
         linesProcessed: job.stats?.received || 0,
         totalLines: job.stats?.total || 0,
         distance: totalDist.total || 0,
-        distanceX: totalDist.x || 0,
-        distanceY: totalDist.y || 0,
-        distanceZ: totalDist.z || 0,
+        distanceByAxis: Object.fromEntries(
+          Object.entries(totalDist).filter(([k]) => k !== 'total').map(([k, v]) => [k, v || 0])
+        ),
         gcode: job.gcode,
         operationTypes,
       }
@@ -476,9 +478,9 @@ export default function Stats() {
       linesProcessed: selectedJobData.stats?.received || 0,
       totalLines: selectedJobData.stats?.total || 0,
       distance: totalDist.total || 0,
-      distanceX: totalDist.x || 0,
-      distanceY: totalDist.y || 0,
-      distanceZ: totalDist.z || 0,
+      distanceByAxis: Object.fromEntries(
+        Object.entries(totalDist).filter(([k]) => k !== 'total').map(([k, v]) => [k, v || 0])
+      ),
       gcode: selectedJobData.gcode,
       operationTypes,
     }
@@ -768,18 +770,12 @@ export default function Stats() {
                       <div className="text-xs text-muted-foreground mb-1">{t('Total Distance')}</div>
                       <div className="text-xl font-bold mb-2">{formatDistance(cumulativeStats.totalDistance)}</div>
                       <div className="space-y-1 text-xs">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground"><span className="text-red-500 font-bold">X</span>:</span>
-                          <span className="font-mono font-medium">{formatDistance(cumulativeStats.distanceX)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground"><span className="text-green-500 font-bold">Y</span>:</span>
-                          <span className="font-mono font-medium">{formatDistance(cumulativeStats.distanceY)}</span>
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-muted-foreground"><span className="text-blue-500 font-bold">Z</span>:</span>
-                          <span className="font-mono font-medium">{formatDistance(cumulativeStats.distanceZ)}</span>
-                        </div>
+                        {Object.entries(cumulativeStats.distanceByAxis).map(([axis, dist]) => (
+                          <div key={axis} className="flex items-center justify-between gap-2">
+                            <span className="text-muted-foreground"><span className={`${AXIS_COLORS[axis.toUpperCase()] || 'text-muted-foreground'} font-bold`}>{axis.toUpperCase()}</span>:</span>
+                            <span className="font-mono font-medium">{formatDistance(dist)}</span>
+                          </div>
+                        ))}
                       </div>
                     </div>
                       </CardContent>
@@ -980,18 +976,12 @@ export default function Stats() {
                           <div className="text-sm text-muted-foreground mb-2">{t('Distance')}</div>
                           <div className="text-xl font-bold mb-2">{formatDistance(selectedJob.distance)}</div>
                           <div className="space-y-1 text-xs">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-muted-foreground"><span className="text-red-500 font-bold">X</span>:</span>
-                              <span className="font-mono font-medium">{formatDistance(selectedJob.distanceX)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-muted-foreground"><span className="text-green-500 font-bold">Y</span>:</span>
-                              <span className="font-mono font-medium">{formatDistance(selectedJob.distanceY)}</span>
-                            </div>
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="text-muted-foreground"><span className="text-blue-500 font-bold">Z</span>:</span>
-                              <span className="font-mono font-medium">{formatDistance(selectedJob.distanceZ)}</span>
-                            </div>
+                            {Object.entries(selectedJob.distanceByAxis).map(([axis, dist]) => (
+                              <div key={axis} className="flex items-center justify-between gap-2">
+                                <span className="text-muted-foreground"><span className={`${AXIS_COLORS[axis.toUpperCase()] || 'text-muted-foreground'} font-bold`}>{axis.toUpperCase()}</span>:</span>
+                                <span className="font-mono font-medium">{formatDistance(dist)}</span>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       </div>

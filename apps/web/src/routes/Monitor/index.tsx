@@ -36,6 +36,7 @@ import {
   usePlannerQueue,
   useRxBufferSize,
   useFeedrate,
+  useAvailableAxes,
 } from '@/store/hooks'
 import { machineStateSync } from '@/services/machineStateSync'
 import { Vector3 } from 'three'
@@ -600,6 +601,7 @@ function ProgressPanel({
   const {
     machinePosition = { x: 0, y: 0, z: 0 },
     workPosition = { x: 0, y: 0, z: 0 },
+    availableAxes = ['x', 'y', 'z'],
     spindleState = 'M5',
     spindleSpeed = 0,
     senderState,
@@ -611,12 +613,24 @@ function ProgressPanel({
   const isOn = spindleState === 'M3' || spindleState === 'M4'
   const direction = spindleState === 'M4' ? 'CCW' : 'CW'
 
-  // Axis data
-  const axes = [
-    { axis: 'X' as const, color: 'text-red-500', bgColor: 'bg-red-500/10', borderColor: 'border-red-500/30', mpos: machinePosition.x, wpos: workPosition.x },
-    { axis: 'Y' as const, color: 'text-green-500', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/30', mpos: machinePosition.y, wpos: workPosition.y },
-    { axis: 'Z' as const, color: 'text-blue-500', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30', mpos: machinePosition.z, wpos: workPosition.z },
-  ]
+  // Axis color/style configuration
+  const AXIS_STYLES: Record<string, { color: string; bgColor: string; borderColor: string }> = {
+    X: { color: 'text-red-500', bgColor: 'bg-red-500/10', borderColor: 'border-red-500/30' },
+    Y: { color: 'text-green-500', bgColor: 'bg-green-500/10', borderColor: 'border-green-500/30' },
+    Z: { color: 'text-blue-500', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30' },
+    A: { color: 'text-orange-500', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30' },
+    B: { color: 'text-purple-500', bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500/30' },
+    C: { color: 'text-cyan-500', bgColor: 'bg-cyan-500/10', borderColor: 'border-cyan-500/30' },
+  }
+
+  // Axis data - dynamically built from available axes
+  const axes = (availableAxes as string[]).map(a => {
+    const upper = a.toUpperCase()
+    const style = AXIS_STYLES[upper] || AXIS_STYLES.X
+    const mpos = (machinePosition as Record<string, number | undefined>)[a] ?? 0
+    const wpos = (workPosition as Record<string, number | undefined>)[a] ?? 0
+    return { axis: upper, ...style, mpos, wpos }
+  })
 
   // Time data from backend (in milliseconds)
   const elapsedMs = senderState?.elapsedTime ?? 0
@@ -1002,6 +1016,7 @@ export default function Monitor() {
   const workflowState = useWorkflowState()
   const machinePosition = useMachinePosition()
   const workPosition = useWorkPosition()
+  const availableAxes = useAvailableAxes()
   const spindleState = useSpindleState()
   const spindleSpeed = useSpindleSpeed()
   const maxSpindleSpeed = machineState.maxSpindleSpeed
@@ -1196,6 +1211,7 @@ export default function Monitor() {
     onFlashStatus: flashStatus,
     machinePosition,
     workPosition,
+    availableAxes,
     spindleState,
     spindleSpeed,
     senderState: jobState, // Use jobState from Redux

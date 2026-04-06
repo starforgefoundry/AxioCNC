@@ -1,59 +1,66 @@
 import { useTranslation } from 'react-i18next'
 import type { PanelProps } from '../../Setup/types'
 
+// Axis color mapping for distance display
+const AXIS_COLORS: Record<string, string> = {
+  X: 'text-red-500',
+  Y: 'text-green-500',
+  Z: 'text-blue-500',
+  A: 'text-orange-500',
+  B: 'text-purple-500',
+  C: 'text-cyan-500',
+}
+
 export function CurrentStatsPanel(props: PanelProps) {
   const { t } = useTranslation()
   const stats = props.senderState?.stats
-  
+  const availableAxes = props.availableAxes || ['x', 'y', 'z']
+
   // Get distances from stats
   const totalDistance = stats?.totalDistance || { x: 0, y: 0, z: 0, total: 0 }
   const cuttingDistance = stats?.cuttingDistance || { x: 0, y: 0, z: 0, total: 0 }
   const transitionDistance = stats?.transitionDistance || { x: 0, y: 0, z: 0, total: 0 }
-  const retractDistance = stats?.retractDistance || { x: 0, y: 0, z: 0, total: 0 }
-  
+
   // Calculate operation type breakdown (for pie chart)
   const totalDistanceTotal = totalDistance.total || 1 // Avoid division by zero
   const cuttingPercent = totalDistanceTotal > 0 ? (cuttingDistance.total / totalDistanceTotal) * 100 : 0
   const transitionPercent = totalDistanceTotal > 0 ? (transitionDistance.total / totalDistanceTotal) * 100 : 0
-  const retractPercent = totalDistanceTotal > 0 ? (retractDistance.total / totalDistanceTotal) * 100 : 0
-  
+  const retractPercent = 100 - cuttingPercent - transitionPercent
+
   const operationTypes = [
     { type: t('Cutting'), percent: cuttingPercent, color: 'rgb(59 130 246)', bgColor: 'bg-blue-500', distance: cuttingDistance.total },
     { type: t('Transition'), percent: transitionPercent, color: 'rgb(34 197 94)', bgColor: 'bg-green-500', distance: transitionDistance.total },
-    { type: t('Retract'), percent: retractPercent, color: 'rgb(249 115 22)', bgColor: 'bg-orange-500', distance: retractDistance.total },
+    { type: t('Retract'), percent: retractPercent > 0 ? retractPercent : 0, color: 'rgb(249 115 22)', bgColor: 'bg-orange-500', distance: (totalDistance.total || 0) - cuttingDistance.total - transitionDistance.total },
   ].filter(op => op.percent > 0) // Only show operations with distance
-  
-  // Use real travel distances from stats
-  const totalTravelX = totalDistance.x || 0
-  const totalTravelY = totalDistance.y || 0
-  const totalTravelZ = totalDistance.z || 0
-  const totalDistanceSum = totalTravelX + totalTravelY + totalTravelZ
-  
+
+  // Build per-axis distance data dynamically
+  const axisDistances = availableAxes.map(a => {
+    const dist = (totalDistance as Record<string, number>)[a] || 0
+    const upper = a.toUpperCase()
+    const isRotary = a === 'a' || a === 'b' || a === 'c'
+    return { axis: upper, distance: dist, unit: isRotary ? t('deg') : t('mm'), color: AXIS_COLORS[upper] || 'text-muted-foreground' }
+  })
+  const totalDistanceSum = axisDistances.reduce((sum, a) => sum + a.distance, 0)
+
   return (
     <div className="p-4 space-y-4">
       {/* Total distance traveled */}
       <div className="space-y-2">
         <div className="text-xs text-muted-foreground">{t('Total Distance')}</div>
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">X:</span>
-            <span className="text-xs font-mono font-medium">{totalTravelX.toFixed(1)} {t('mm')}</span>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">Y:</span>
-            <span className="text-xs font-mono font-medium">{totalTravelY.toFixed(1)} {t('mm')}</span>
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">Z:</span>
-            <span className="text-xs font-mono font-medium">{totalTravelZ.toFixed(1)} {t('mm')}</span>
-          </div>
+          {axisDistances.map(({ axis, distance, unit, color }) => (
+            <div key={axis} className="flex items-center justify-between gap-2">
+              <span className={`text-xs font-medium ${color}`}>{axis}:</span>
+              <span className="text-xs font-mono font-medium">{distance.toFixed(1)} {unit}</span>
+            </div>
+          ))}
           <div className="flex items-center justify-between gap-2 pt-1 border-t border-border">
             <span className="text-xs font-medium">{t('Total:')}</span>
             <span className="text-xs font-mono font-semibold">{totalDistanceSum.toFixed(1)} {t('mm')}</span>
           </div>
         </div>
       </div>
-      
+
       {/* Operation type pie chart */}
       <div className="space-y-2">
         <div className="text-xs text-muted-foreground">{t('Operation Types')}</div>
