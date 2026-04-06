@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState, useCallback } from 'react'
+import { useMemo, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ComponentRef } from 'react'
 import { Color } from 'three'
@@ -217,7 +217,7 @@ function ZTopRectangle({ length, gridSizeX, gridSizeY }: { length: number; gridS
 }
 
 // G-code toolpath visualization component
-function GCodeToolpath({ gcode, offset, processedLines = 0, onLoadingChange }: { gcode?: string | null; offset?: Vector3Type; processedLines?: number; onLoadingChange?: (loading: boolean) => void }) {
+function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string | null; offset?: Vector3Type; processedLines?: number }) {
   const geometryRef = useRef<BufferGeometry | null>(null)
   const framesRef = useRef<Array<{ data: string; vertexIndex: number }>>([])
   const originalColorsRef = useRef<Float32Array | null>(null)
@@ -225,74 +225,50 @@ function GCodeToolpath({ gcode, offset, processedLines = 0, onLoadingChange }: {
   const redColor = useMemo(() => new Color(1, 0, 0), []) // Red color for processed lines
   const invalidate = useThree((state) => state.invalidate)
 
-  // Process G-code asynchronously so loading indicator can paint before heavy work
-  const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
-
-  useEffect(() => {
-    if (!gcode) {
+  const geometry = useMemo(() => {
+    const result = processGCode(gcode)
+    if (!result?.geometry) {
       geometryRef.current = null
       framesRef.current = []
       originalColorsRef.current = null
       prevProcessedLinesRef.current = 0
-      setGeometry(null)
-      return
+      return null
     }
 
-    onLoadingChange?.(true)
+    // Store frames and original colors for animation
+    framesRef.current = result.frames
+    const colorAttr = result.geometry.getAttribute('color') as BufferAttribute
+    originalColorsRef.current = colorAttr ? (colorAttr.array as Float32Array).slice() : null
+    prevProcessedLinesRef.current = 0 // Reset on new geometry
 
-    // Defer heavy processing to next frame so React can paint loading state
-    const timeoutId = setTimeout(() => {
-      const result = processGCode(gcode)
-      if (!result?.geometry) {
-        geometryRef.current = null
-        framesRef.current = []
-        originalColorsRef.current = null
-        prevProcessedLinesRef.current = 0
-        setGeometry(null)
-        onLoadingChange?.(false)
-        return
+    // Apply offset if provided
+    if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
+      const positionAttr = result.geometry.getAttribute('position') as BufferAttribute
+      const positions = positionAttr.array as Float32Array
+      const newPositions = new Float32Array(positions.length)
+
+      for (let i = 0; i < positions.length; i += 3) {
+        newPositions[i] = positions[i] + offset.x
+        newPositions[i + 1] = positions[i + 1] + offset.y
+        newPositions[i + 2] = positions[i + 2] + offset.z
       }
 
-      // Store frames and original colors for animation
-      framesRef.current = result.frames
-      const colorAttr = result.geometry.getAttribute('color') as BufferAttribute
-      originalColorsRef.current = colorAttr ? (colorAttr.array as Float32Array).slice() : null
-      prevProcessedLinesRef.current = 0 // Reset on new geometry
-
-      // Apply offset if provided
-      if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
-        const positionAttr = result.geometry.getAttribute('position') as BufferAttribute
-        const positions = positionAttr.array as Float32Array
-        const newPositions = new Float32Array(positions.length)
-
-        for (let i = 0; i < positions.length; i += 3) {
-          newPositions[i] = positions[i] + offset.x
-          newPositions[i + 1] = positions[i + 1] + offset.y
-          newPositions[i + 2] = positions[i + 2] + offset.z
-        }
-
-        const newGeometry = result.geometry.clone()
-        newGeometry.setAttribute('position', new BufferAttribute(newPositions, 3))
-        const cloneColorAttr = result.geometry.getAttribute('color') as BufferAttribute
-        if (cloneColorAttr) {
-          const colors = cloneColorAttr.array as Float32Array
-          const clonedColors = colors.slice()
-          newGeometry.setAttribute('color', new BufferAttribute(clonedColors, 3))
-          originalColorsRef.current = new Float32Array(clonedColors)
-        }
-        geometryRef.current = newGeometry
-        setGeometry(newGeometry)
-      } else {
-        geometryRef.current = result.geometry
-        setGeometry(result.geometry)
+      const newGeometry = result.geometry.clone()
+      newGeometry.setAttribute('position', new BufferAttribute(newPositions, 3))
+      const cloneColorAttr = result.geometry.getAttribute('color') as BufferAttribute
+      if (cloneColorAttr) {
+        const colors = cloneColorAttr.array as Float32Array
+        const clonedColors = colors.slice()
+        newGeometry.setAttribute('color', new BufferAttribute(clonedColors, 3))
+        originalColorsRef.current = new Float32Array(clonedColors)
       }
+      geometryRef.current = newGeometry
+      return newGeometry
+    }
 
-      onLoadingChange?.(false)
-      invalidate()
-    }, 0)
-
-    return () => clearTimeout(timeoutId)
-  }, [gcode, offset, onLoadingChange, invalidate]) // eslint-disable-line react-hooks/exhaustive-deps
+    geometryRef.current = result.geometry
+    return result.geometry
+  }, [gcode, offset])
 
   // Update colors based on processed lines - incremental updates only paint the delta
   useEffect(() => {
@@ -644,8 +620,47 @@ function CameraController({ xSize, ySize, zSize, view, viewKey }: { xSize: numbe
 export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machinePosition, modelOffset, processedLines, outlinePoints, vizMode = 'machine' }: VisualizerSceneProps = {}) {
   const { t } = useTranslation()
   const [webglAvailable, setWebglAvailable] = useState<boolean | null>(null)
+
+  // Deferred gcode loading: show loading indicator in outer DOM, then pass gcode to Canvas
+  // after the browser has painted the overlay. This ensures the spinner is visible before
+  // the heavy processGCode call blocks the main thread inside the Canvas.
+  const [deferredGcode, setDeferredGcode] = useState<string | null | undefined>(gcode)
   const [isProcessing, setIsProcessing] = useState(false)
-  const handleLoadingChange = useCallback((loading: boolean) => setIsProcessing(loading), [])
+
+  useEffect(() => {
+    if (!gcode) {
+      setDeferredGcode(null)
+      setIsProcessing(false)
+      return
+    }
+
+    // Show loading overlay immediately
+    setIsProcessing(true)
+    setDeferredGcode(null) // Clear stale geometry while loading
+
+    // Double requestAnimationFrame ensures the browser has actually painted
+    // the loading overlay before we let the heavy processGCode run
+    let rafId1 = 0
+    let rafId2 = 0
+    rafId1 = requestAnimationFrame(() => {
+      rafId2 = requestAnimationFrame(() => {
+        // This triggers GCodeToolpath's useMemo which runs processGCode synchronously.
+        // The loading spinner will be visible (though frozen) during the blocking parse.
+        setDeferredGcode(gcode)
+      })
+    })
+    return () => {
+      cancelAnimationFrame(rafId1)
+      cancelAnimationFrame(rafId2)
+    }
+  }, [gcode])
+
+  // Clear loading state after deferred gcode has been processed and rendered
+  useEffect(() => {
+    if (deferredGcode && isProcessing) {
+      setIsProcessing(false)
+    }
+  }, [deferredGcode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -706,9 +721,9 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
 
   // In WCS mode, compute bounding box from gcode to size the grid/camera
   const wcsGcodeResult = useMemo(() => {
-    if (vizMode !== 'wcs' || !gcode) return null
-    return processGCode(gcode)
-  }, [vizMode, gcode])
+    if (vizMode !== 'wcs' || !deferredGcode) return null
+    return processGCode(deferredGcode)
+  }, [vizMode, deferredGcode])
 
   const wcsSceneSize = useMemo(() => {
     if (!wcsGcodeResult?.boundingBox) return 200
@@ -791,7 +806,7 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
         )}
 
         {/* G-code toolpath visualization (shown in both modes) */}
-        <GCodeToolpath gcode={gcode} offset={modelOffset} processedLines={processedLines} onLoadingChange={handleLoadingChange} />
+        <GCodeToolpath gcode={deferredGcode} offset={modelOffset} processedLines={processedLines} />
 
         {/* Outline visualization - pink line showing toolpath boundary */}
         {outlinePoints && outlinePoints.length > 0 && (
