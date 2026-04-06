@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useRef, useState } from 'react'
+import { useMemo, useEffect, useRef, useState, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { ComponentRef } from 'react'
 import { Color } from 'three'
@@ -6,6 +6,7 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber'
 import { OrbitControls, PerspectiveCamera, Text } from '@react-three/drei'
 import { BufferGeometry, BufferAttribute, ArrowHelper, Vector3, LineBasicMaterial, Line, LineDashedMaterial, PlaneGeometry, EdgesGeometry, Group } from 'three'
 import type { Vector3 as Vector3Type } from 'three'
+import { Loader2 } from 'lucide-react'
 import { useGetSettingsQuery, useGetExtensionsQuery } from '@/services/api'
 import { machineToThree, type MachineLimits, type Coordinate } from '@/lib/coordinates'
 import type { HomingCorner } from '@/lib/machineLimits'
@@ -216,7 +217,7 @@ function ZTopRectangle({ length, gridSizeX, gridSizeY }: { length: number; gridS
 }
 
 // G-code toolpath visualization component
-function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string | null; offset?: Vector3Type; processedLines?: number }) {
+function GCodeToolpath({ gcode, offset, processedLines = 0, onLoadingChange }: { gcode?: string | null; offset?: Vector3Type; processedLines?: number; onLoadingChange?: (loading: boolean) => void }) {
   const geometryRef = useRef<BufferGeometry | null>(null)
   const framesRef = useRef<Array<{ data: string; vertexIndex: number }>>([])
   const originalColorsRef = useRef<Float32Array | null>(null)
@@ -224,56 +225,74 @@ function GCodeToolpath({ gcode, offset, processedLines = 0 }: { gcode?: string |
   const redColor = useMemo(() => new Color(1, 0, 0), []) // Red color for processed lines
   const invalidate = useThree((state) => state.invalidate)
 
-  const geometry = useMemo(() => {
-    const result = processGCode(gcode)
-    if (!result?.geometry) {
+  // Process G-code asynchronously so loading indicator can paint before heavy work
+  const [geometry, setGeometry] = useState<BufferGeometry | null>(null)
+
+  useEffect(() => {
+    if (!gcode) {
       geometryRef.current = null
       framesRef.current = []
       originalColorsRef.current = null
       prevProcessedLinesRef.current = 0
-      return null
+      setGeometry(null)
+      return
     }
 
-    // Store frames and original colors for animation
-    framesRef.current = result.frames
-    const colorAttr = result.geometry.getAttribute('color') as BufferAttribute
-    originalColorsRef.current = colorAttr ? (colorAttr.array as Float32Array).slice() : null
-    prevProcessedLinesRef.current = 0 // Reset on new geometry
+    onLoadingChange?.(true)
 
-    // Apply offset if provided
-    if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
-      const positionAttr = result.geometry.getAttribute('position') as BufferAttribute
-      const positions = positionAttr.array as Float32Array
-      const newPositions = new Float32Array(positions.length)
-
-      for (let i = 0; i < positions.length; i += 3) {
-        newPositions[i] = positions[i] + offset.x
-        newPositions[i + 1] = positions[i + 1] + offset.y
-        newPositions[i + 2] = positions[i + 2] + offset.z
+    // Defer heavy processing to next frame so React can paint loading state
+    const timeoutId = setTimeout(() => {
+      const result = processGCode(gcode)
+      if (!result?.geometry) {
+        geometryRef.current = null
+        framesRef.current = []
+        originalColorsRef.current = null
+        prevProcessedLinesRef.current = 0
+        setGeometry(null)
+        onLoadingChange?.(false)
+        return
       }
 
-      const newGeometry = result.geometry.clone()
-      newGeometry.setAttribute('position', new BufferAttribute(newPositions, 3))
-      // Clone color attribute as well to ensure we can update it
+      // Store frames and original colors for animation
+      framesRef.current = result.frames
       const colorAttr = result.geometry.getAttribute('color') as BufferAttribute
-      if (colorAttr) {
-        const colors = colorAttr.array as Float32Array
-        const clonedColors = colors.slice()
-        newGeometry.setAttribute('color', new BufferAttribute(clonedColors, 3))
-        // Update originalColorsRef to point to the cloned colors
-        originalColorsRef.current = new Float32Array(clonedColors)
-      }
-      geometryRef.current = newGeometry
-      return newGeometry
-    }
+      originalColorsRef.current = colorAttr ? (colorAttr.array as Float32Array).slice() : null
+      prevProcessedLinesRef.current = 0 // Reset on new geometry
 
-    geometryRef.current = result.geometry
-    return result.geometry
-  }, [
-    gcode,
-    // Compare offset values instead of reference to prevent unnecessary recreation
-    offset,
-  ])
+      // Apply offset if provided
+      if (offset && (offset.x !== 0 || offset.y !== 0 || offset.z !== 0)) {
+        const positionAttr = result.geometry.getAttribute('position') as BufferAttribute
+        const positions = positionAttr.array as Float32Array
+        const newPositions = new Float32Array(positions.length)
+
+        for (let i = 0; i < positions.length; i += 3) {
+          newPositions[i] = positions[i] + offset.x
+          newPositions[i + 1] = positions[i + 1] + offset.y
+          newPositions[i + 2] = positions[i + 2] + offset.z
+        }
+
+        const newGeometry = result.geometry.clone()
+        newGeometry.setAttribute('position', new BufferAttribute(newPositions, 3))
+        const cloneColorAttr = result.geometry.getAttribute('color') as BufferAttribute
+        if (cloneColorAttr) {
+          const colors = cloneColorAttr.array as Float32Array
+          const clonedColors = colors.slice()
+          newGeometry.setAttribute('color', new BufferAttribute(clonedColors, 3))
+          originalColorsRef.current = new Float32Array(clonedColors)
+        }
+        geometryRef.current = newGeometry
+        setGeometry(newGeometry)
+      } else {
+        geometryRef.current = result.geometry
+        setGeometry(result.geometry)
+      }
+
+      onLoadingChange?.(false)
+      invalidate()
+    }, 0)
+
+    return () => clearTimeout(timeoutId)
+  }, [gcode, offset, onLoadingChange, invalidate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Update colors based on processed lines - incremental updates only paint the delta
   useEffect(() => {
@@ -625,6 +644,8 @@ function CameraController({ xSize, ySize, zSize, view, viewKey }: { xSize: numbe
 export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machinePosition, modelOffset, processedLines, outlinePoints, vizMode = 'machine' }: VisualizerSceneProps = {}) {
   const { t } = useTranslation()
   const [webglAvailable, setWebglAvailable] = useState<boolean | null>(null)
+  const [isProcessing, setIsProcessing] = useState(false)
+  const handleLoadingChange = useCallback((loading: boolean) => setIsProcessing(loading), [])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -770,14 +791,24 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
         )}
 
         {/* G-code toolpath visualization (shown in both modes) */}
-        <GCodeToolpath gcode={gcode} offset={modelOffset} processedLines={processedLines} />
+        <GCodeToolpath gcode={gcode} offset={modelOffset} processedLines={processedLines} onLoadingChange={handleLoadingChange} />
 
         {/* Outline visualization - pink line showing toolpath boundary */}
         {outlinePoints && outlinePoints.length > 0 && (
           <OutlinePath points={outlinePoints} offset={modelOffset} zHeight={machinePosition?.z ? machinePosition.z + 5 : 5} />
         )}
       </Canvas>
-      
+
+      {/* Loading overlay */}
+      {isProcessing && (
+        <div className="absolute inset-0 flex items-center justify-center bg-background/50 pointer-events-none z-10">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            {t('Processing toolpath...')}
+          </div>
+        </div>
+      )}
+
       {/* Position readout overlay - only show if debug mode is enabled */}
       {debugMode && (
         <div className="absolute top-2 right-2 bg-black/70 text-white text-xs font-mono rounded px-2 py-1.5 pointer-events-none">
