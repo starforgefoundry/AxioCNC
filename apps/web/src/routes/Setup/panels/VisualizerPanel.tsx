@@ -263,6 +263,7 @@ export function VisualizerPanel({
   const [loadedGcode, setLoadedGcode] = useState<{ name: string; gcode: string } | null>(null)
   const [modelOffset, setModelOffset] = useState<{ x: number; y: number; z: number } | null>(null)
   const [outlinePoints, setOutlinePoints] = useState<Point2D[] | null>(null)
+  const [isProcessingGcode, setIsProcessingGcode] = useState(false)
   
   // Read showOutline toggle from localStorage (managed by DebugPanel)
   const [showOutline, setShowOutline] = useState(() => {
@@ -351,22 +352,8 @@ export function VisualizerPanel({
         console.log('[VisualizerPanel] Restoring G-code from API:', gcodeData.name)
         setLoadedGcode({ name: gcodeData.name, gcode })
         lastRestoredApiFileRef.current = gcodeData.name
-        
-        // Calculate outline for visualization
-        // Note: machinePosition is only used for generating commands, not for hull calculation
-        const currentMachinePosition = machinePositionRef.current
-        if (gcode && currentMachinePosition) {
-          const outlineResult = calculateOutline(gcode, currentMachinePosition, { 
-            concavity: 5,
-            minPointDistance: 5, // 5mm minimum distance between points
-          })
-          if (outlineResult) {
-            setOutlinePoints(outlineResult.hullPoints)
-          } else {
-            setOutlinePoints(null)
-          }
-        }
-        
+        // Outline calculation is handled by the loadedGcode?.gcode effect
+
         // Try to restore model offset from localStorage
         const savedOffsetKey = `modelOffset_${gcodeData.name}`
         const savedOffset = localStorage.getItem(savedOffsetKey)
@@ -406,22 +393,8 @@ export function VisualizerPanel({
         // Only reset if this is a different file than the one we've already placed
         const isNewFile = placedGcodeRef.current !== name
         setLoadedGcode({ name, gcode })
-        
-        // Calculate outline for visualization
-        // Note: machinePosition is only used for generating commands, not for hull calculation
-        const currentMachinePosition = machinePositionRef.current
-        if (currentMachinePosition) {
-          const outlineResult = calculateOutline(gcode, currentMachinePosition, { 
-            concavity: 5,
-            minPointDistance: 5, // 5mm minimum distance between points
-          })
-          if (outlineResult) {
-            setOutlinePoints(outlineResult.hullPoints)
-          } else {
-            setOutlinePoints(null)
-          }
-        }
-        
+        // Outline calculation is handled by the loadedGcode?.gcode effect
+
         // Clear unload sentinel when a file is loaded
         if (lastRestoredApiFileRef.current === '') {
           lastRestoredApiFileRef.current = null
@@ -457,23 +430,39 @@ export function VisualizerPanel({
   }, []) // Empty deps - handlers use refs to access current values
 
   // Recalculate outline when G-code changes
-  // Note: machinePosition is only used for generating outline commands, not for hull calculation
-  // so we don't need to recalculate when the toolhead moves
+  // Uses deferred processing so the loading indicator can paint before heavy work runs
   useEffect(() => {
-    if (loadedGcode?.gcode && machinePosition) {
-      const outlineResult = calculateOutline(loadedGcode.gcode, machinePosition, { 
-        concavity: 2,
-        minPointDistance: 1, // 1mm minimum distance between points
-      })
-      if (outlineResult) {
-        setOutlinePoints(outlineResult.hullPoints)
-      } else {
-        setOutlinePoints(null)
-      }
-    } else {
+    if (!loadedGcode?.gcode) {
       setOutlinePoints(null)
+      setIsProcessingGcode(false)
+      return
     }
-  }, [loadedGcode?.gcode, machinePosition])
+
+    setIsProcessingGcode(true)
+
+    // Double rAF ensures the browser has painted the loading overlay before heavy work
+    let rafId1 = 0
+    let rafId2 = 0
+    rafId1 = requestAnimationFrame(() => {
+      rafId2 = requestAnimationFrame(() => {
+        const currentMachinePosition = machinePositionRef.current
+        const outlineResult = calculateOutline(loadedGcode.gcode, currentMachinePosition, {
+          concavity: 2,
+          minPointDistance: 1, // 1mm minimum distance between points
+        })
+        if (outlineResult) {
+          setOutlinePoints(outlineResult.hullPoints)
+        } else {
+          setOutlinePoints(null)
+        }
+        setIsProcessingGcode(false)
+      })
+    })
+    return () => {
+      cancelAnimationFrame(rafId1)
+      cancelAnimationFrame(rafId2)
+    }
+  }, [loadedGcode?.gcode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Automatically place model at WCS origin when G-code is loaded
   useEffect(() => {
@@ -706,6 +695,7 @@ export function VisualizerPanel({
           modelOffset={vizMode === 'machine' ? modelOffsetVector3 : undefined}
           outlinePoints={showOutline ? (outlinePoints || undefined) : undefined}
           vizMode={vizMode}
+          isLoading={isProcessingGcode}
         />
 
         {/* View controls overlay */}

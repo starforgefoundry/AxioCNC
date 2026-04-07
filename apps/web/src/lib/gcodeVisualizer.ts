@@ -26,15 +26,25 @@ export interface GCodeGeometryResult {
   firstVertex?: Vector3 // First vertex position for offset calculations
 }
 
+// Simple cache for processGCode to avoid redundant parsing of the same G-code
+let _cachedGcodeInput: string | null = null
+let _cachedGcodeResult: GCodeGeometryResult | null = null
+
 /**
- * Process G-code string and generate Three.js BufferGeometry for visualization
- * 
+ * Process G-code string and generate Three.js BufferGeometry for visualization.
+ * Results are cached - repeated calls with the same gcode string return the cached result.
+ *
  * @param gcode - G-code string to process
  * @returns Geometry data with frames for animation/stepping through the toolpath
  */
 export function processGCode(gcode: string | null | undefined): GCodeGeometryResult | null {
   if (!gcode) {
     return null
+  }
+
+  // Return cached result if input hasn't changed
+  if (gcode === _cachedGcodeInput && _cachedGcodeResult) {
+    return _cachedGcodeResult
   }
 
   const positions: number[] = []
@@ -162,10 +172,16 @@ export function processGCode(gcode: string | null | undefined): GCodeGeometryRes
     }
   }
 
-  return {
+  const result: GCodeGeometryResult = {
     geometry,
     frames,
     boundingBox,
     firstVertex: initialPosition // Return the toolpath origin (initial position)
   }
+
+  // Cache the result
+  _cachedGcodeInput = gcode
+  _cachedGcodeResult = result
+
+  return result
 }
