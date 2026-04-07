@@ -24,6 +24,7 @@ interface VisualizerSceneProps {
   processedLines?: number // Number of G-code lines that have been processed (for animation)
   outlinePoints?: Array<{ x: number; y: number }> // Outline points to visualize
   vizMode?: VizMode // 'machine' = absolute envelope view (default), 'wcs' = relative to gcode WCS origin
+  isLoading?: boolean // External loading state (e.g. outline calculation in progress)
 }
 
 // Grid component - draws a grid on the z=0 plane, starting at origin and extending in positive X and Y
@@ -617,7 +618,7 @@ function CameraController({ xSize, ySize, zSize, view, viewKey }: { xSize: numbe
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machinePosition, modelOffset, processedLines, outlinePoints, vizMode = 'machine' }: VisualizerSceneProps = {}) {
+export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machinePosition, modelOffset, processedLines, outlinePoints, vizMode = 'machine', isLoading = false }: VisualizerSceneProps = {}) {
   const { t } = useTranslation()
   const [webglAvailable, setWebglAvailable] = useState<boolean | null>(null)
 
@@ -814,8 +815,8 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
         )}
       </Canvas>
 
-      {/* Loading overlay */}
-      {isProcessing && (
+      {/* Loading overlay - shows during external processing (outline calc) or internal geometry parsing */}
+      {(isLoading || isProcessing) && (
         <div className="absolute inset-0 flex items-center justify-center bg-background/50 pointer-events-none z-10">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-5 h-5 animate-spin" />
