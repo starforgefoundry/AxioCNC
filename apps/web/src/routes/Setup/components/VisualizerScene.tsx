@@ -10,7 +10,7 @@ import { Loader2 } from 'lucide-react'
 import { useGetSettingsQuery, useGetExtensionsQuery } from '@/services/api'
 import { machineToThree, type MachineLimits, type Coordinate } from '@/lib/coordinates'
 import type { HomingCorner } from '@/lib/machineLimits'
-import { processGCode } from '@/lib/gcodeVisualizer'
+import { processGCode, processGCodeAsync } from '@/lib/gcodeVisualizer'
 
 export type VizMode = 'machine' | 'wcs'
 
@@ -622,9 +622,9 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
   const { t } = useTranslation()
   const [webglAvailable, setWebglAvailable] = useState<boolean | null>(null)
 
-  // Deferred gcode loading: show loading indicator in outer DOM, then pass gcode to Canvas
-  // after the browser has painted the overlay. This ensures the spinner is visible before
-  // the heavy processGCode call blocks the main thread inside the Canvas.
+  // Async gcode loading: process gcode in background chunks so the UI stays
+  // responsive, then pass the gcode string to GCodeToolpath once the cache is
+  // populated (so its synchronous useMemo hits the cache instantly).
   const [deferredGcode, setDeferredGcode] = useState<string | null | undefined>(gcode)
   const [isProcessing, setIsProcessing] = useState(false)
 
@@ -635,33 +635,30 @@ export function VisualizerScene({ gcode, limits: _limits, view, viewKey, machine
       return
     }
 
-    // Show loading overlay immediately
+    // Show loading overlay and clear stale geometry while processing
     setIsProcessing(true)
-    setDeferredGcode(null) // Clear stale geometry while loading
+    setDeferredGcode(null)
 
-    // Double requestAnimationFrame ensures the browser has actually painted
-    // the loading overlay before we let the heavy processGCode run
-    let rafId1 = 0
-    let rafId2 = 0
-    rafId1 = requestAnimationFrame(() => {
-      rafId2 = requestAnimationFrame(() => {
-        // This triggers GCodeToolpath's useMemo which runs processGCode synchronously.
-        // The loading spinner will be visible (though frozen) during the blocking parse.
+    const abortController = new AbortController()
+
+    // processGCodeAsync processes gcode in chunks, yielding to the UI thread
+    // between chunks so the loading spinner stays animated. When it resolves
+    // the result is cached, so GCodeToolpath's sync processGCode call is instant.
+    processGCodeAsync(gcode, abortController.signal).then(() => {
+      if (!abortController.signal.aborted) {
         setDeferredGcode(gcode)
-      })
+        setIsProcessing(false)
+      }
+    }).catch(() => {
+      if (!abortController.signal.aborted) {
+        setIsProcessing(false)
+      }
     })
+
     return () => {
-      cancelAnimationFrame(rafId1)
-      cancelAnimationFrame(rafId2)
+      abortController.abort()
     }
   }, [gcode])
-
-  // Clear loading state after deferred gcode has been processed and rendered
-  useEffect(() => {
-    if (deferredGcode && isProcessing) {
-      setIsProcessing(false)
-    }
-  }, [deferredGcode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (typeof window === 'undefined') {
