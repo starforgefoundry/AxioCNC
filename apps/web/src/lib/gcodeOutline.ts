@@ -1,5 +1,5 @@
 import concaveman from 'concaveman'
-import { processGCode } from './gcodeVisualizer'
+import { processGCode, processGCodeAsync } from './gcodeVisualizer'
 import i18n from '@/i18n'
 
 /**
@@ -278,30 +278,21 @@ export function generateOutlinePath(
 }
 
 /**
- * Calculate outline from G-code and generate path
- * Main entry point for outline functionality
- * 
- * @param gcode - G-code string
- * @param currentPosition - Current machine position
- * @param options - Outline options
- * @returns Outline result with hull points and commands
+ * Build an OutlineResult from extracted XY points.
+ * Shared by both sync and async outline calculation.
  */
-export function calculateOutline(
-  gcode: string | null | undefined,
+function buildOutlineResult(
+  points: Point2D[],
   currentPosition: { x: number; y: number; z: number },
-  options: OutlineOptions = {}
+  options: OutlineOptions
 ): OutlineResult | null {
-  // Extract XY positions
-  const points = extractXYPositions(gcode)
-  
   if (points.length < 3) {
-    return null // Not enough points for a hull
+    return null
   }
 
-  // Calculate concave hull
   let hullPoints: Point2D[]
   try {
-    hullPoints = calculateConcaveHull(points, { 
+    hullPoints = calculateConcaveHull(points, {
       concavity: options.concavity,
       minPointDistance: options.minPointDistance,
     })
@@ -314,7 +305,6 @@ export function calculateOutline(
     return null
   }
 
-  // Calculate bounds
   const bounds = {
     min: { x: Infinity, y: Infinity },
     max: { x: -Infinity, y: -Infinity },
@@ -327,12 +317,58 @@ export function calculateOutline(
     bounds.max.y = Math.max(bounds.max.y, point.y)
   }
 
-  // Generate G-code commands
   const commands = generateOutlinePath(hullPoints, currentPosition, options)
 
-  return {
-    hullPoints,
-    commands,
-    bounds,
+  return { hullPoints, commands, bounds }
+}
+
+/**
+ * Calculate outline from G-code and generate path (synchronous).
+ * Prefer calculateOutlineAsync for large files to avoid blocking the UI.
+ *
+ * @param gcode - G-code string
+ * @param currentPosition - Current machine position
+ * @param options - Outline options
+ * @returns Outline result with hull points and commands
+ */
+export function calculateOutline(
+  gcode: string | null | undefined,
+  currentPosition: { x: number; y: number; z: number },
+  options: OutlineOptions = {}
+): OutlineResult | null {
+  const points = extractXYPositions(gcode)
+  return buildOutlineResult(points, currentPosition, options)
+}
+
+/**
+ * Calculate outline from G-code asynchronously.
+ * Uses processGCodeAsync to parse the gcode without blocking the UI thread,
+ * then extracts XY positions from the cached result.
+ *
+ * @param gcode - G-code string
+ * @param currentPosition - Current machine position
+ * @param options - Outline options
+ * @param signal - Optional AbortSignal to cancel processing
+ * @returns Outline result with hull points and commands, or null
+ */
+export async function calculateOutlineAsync(
+  gcode: string | null | undefined,
+  currentPosition: { x: number; y: number; z: number },
+  options: OutlineOptions = {},
+  signal?: AbortSignal
+): Promise<OutlineResult | null> {
+  if (!gcode) {
+    return null
   }
+
+  // Ensure gcode is parsed asynchronously (populates the cache)
+  await processGCodeAsync(gcode, signal)
+
+  if (signal?.aborted) {
+    return null
+  }
+
+  // extractXYPositions calls processGCode which now hits the cache instantly
+  const points = extractXYPositions(gcode)
+  return buildOutlineResult(points, currentPosition, options)
 }

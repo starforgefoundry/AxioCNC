@@ -11,7 +11,7 @@ import { SingleMethodProbeFlow } from '@/components/SingleMethodProbeFlow'
 import { ToolChangeTab } from '@/components/ToolChangeTab'
 import { JobSetupWizard } from '@/components/JobSetupWizard'
 import { useToolChange } from '@/contexts/ToolChangeContext'
-import { calculateOutline, type Point2D } from '@/lib/gcodeOutline'
+import { calculateOutlineAsync, type Point2D } from '@/lib/gcodeOutline'
 import { Vector3 } from 'three'
 import { machineToThree, type MachineLimits } from '@/lib/coordinates'
 import type { HomingCorner } from '@/lib/machineLimits'
@@ -429,8 +429,8 @@ export function VisualizerPanel({
     }
   }, []) // Empty deps - handlers use refs to access current values
 
-  // Recalculate outline when G-code changes
-  // Uses deferred processing so the loading indicator can paint before heavy work runs
+  // Recalculate outline when G-code changes.
+  // Uses async processing so the UI stays responsive during large-file parsing.
   useEffect(() => {
     if (!loadedGcode?.gcode) {
       setOutlinePoints(null)
@@ -440,27 +440,24 @@ export function VisualizerPanel({
 
     setIsProcessingGcode(true)
 
-    // Double rAF ensures the browser has painted the loading overlay before heavy work
-    let rafId1 = 0
-    let rafId2 = 0
-    rafId1 = requestAnimationFrame(() => {
-      rafId2 = requestAnimationFrame(() => {
-        const currentMachinePosition = machinePositionRef.current
-        const outlineResult = calculateOutline(loadedGcode.gcode, currentMachinePosition, {
-          concavity: 2,
-          minPointDistance: 1, // 1mm minimum distance between points
-        })
-        if (outlineResult) {
-          setOutlinePoints(outlineResult.hullPoints)
-        } else {
-          setOutlinePoints(null)
-        }
-        setIsProcessingGcode(false)
-      })
+    const abortController = new AbortController()
+
+    calculateOutlineAsync(
+      loadedGcode.gcode,
+      machinePositionRef.current,
+      { concavity: 2, minPointDistance: 1 },
+      abortController.signal
+    ).then((outlineResult) => {
+      if (abortController.signal.aborted) return
+      setOutlinePoints(outlineResult?.hullPoints ?? null)
+      setIsProcessingGcode(false)
+    }).catch(() => {
+      if (abortController.signal.aborted) return
+      setIsProcessingGcode(false)
     })
+
     return () => {
-      cancelAnimationFrame(rafId1)
-      cancelAnimationFrame(rafId2)
+      abortController.abort()
     }
   }, [loadedGcode?.gcode]) // eslint-disable-line react-hooks/exhaustive-deps
 

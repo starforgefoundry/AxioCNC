@@ -7,7 +7,7 @@ import 'overlayscrollbars/overlayscrollbars.css'
 import { useGetWorkfilesQuery, useUploadWorkfileMutation, useLazyGetWorkfileContentQuery, useGetControllersQuery, useGetGcodeQuery } from '@/services/api'
 import { socketService } from '@/services/socket'
 import { runGcodeBatch } from '@/utils/runGcodeBatch'
-import { calculateOutline } from '@/lib/gcodeOutline'
+import { calculateOutlineAsync } from '@/lib/gcodeOutline'
 import { useNotifications } from '@/hooks/useNotifications'
 import { ConfirmationDialog } from '@/components/ConfirmationDialog'
 import type { PanelProps } from '../types'
@@ -231,8 +231,8 @@ export function FilePanel({ isConnected, connectedPort: connectedPortProp, onFla
         throw new Error(t('G-code content is empty'))
       }
 
-      // Calculate outline
-      const outlineResult = calculateOutline(
+      // Calculate outline (async to avoid blocking UI on large files)
+      const outlineResult = await calculateOutlineAsync(
         result.gcode,
         {
           x: machinePosition.x,

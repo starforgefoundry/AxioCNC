@@ -253,8 +253,9 @@ export function processGCode(gcode: string | null | undefined): GCodeGeometryRes
 }
 
 // Number of G-code lines to process per chunk before yielding to the UI thread.
-// Larger chunks = less overhead but longer freezes; smaller = smoother UI but slower overall.
-const ASYNC_CHUNK_SIZE = 5000
+// Targets ~16ms per chunk (one frame at 60fps) to keep the UI responsive.
+// At ~15μs per line (parse + interpret), 1000 lines ≈ 15ms.
+const ASYNC_CHUNK_SIZE = 1000
 
 /**
  * Process G-code asynchronously in chunks, yielding to the UI thread between
